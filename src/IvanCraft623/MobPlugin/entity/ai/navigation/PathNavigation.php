@@ -241,6 +241,10 @@ abstract class PathNavigation {
 			$this->path = $path;
 		}
 
+		if (!$this->mob->getPosition()->isValid()) {
+			return false;
+		}
+
 		if ($this->isDone()) {
 			return false;
 		}
