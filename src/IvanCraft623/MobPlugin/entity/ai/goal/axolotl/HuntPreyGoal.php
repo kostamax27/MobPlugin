@@ -28,7 +28,7 @@ use IvanCraft623\MobPlugin\entity\animal\Axolotl;
 use pocketmine\entity\Living;
 use pocketmine\entity\Squid;
 
-//TODO: also drowned, guardians, fish and tadpoles, once they exist
+
 class HuntPreyGoal extends NearestAttackableGoal{
 
 	public function __construct(private Axolotl $axolotl){

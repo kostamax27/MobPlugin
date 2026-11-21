@@ -23,11 +23,11 @@ declare(strict_types=1);
 
 namespace IvanCraft623\MobPlugin\entity\ai\navigation;
 
-use IvanCraft623\Pathfinder\Path;
-use IvanCraft623\Pathfinder\PathCursor;
-use IvanCraft623\Pathfinder\PathInvalidation;
-use IvanCraft623\Pathfinder\PathRepair;
-use IvanCraft623\Pathfinder\SearchRequest;
+use IvanCraft623\MobPlugin\libs\_e421b59f3e68a8d4\IvanCraft623\Pathfinder\Path;
+use IvanCraft623\MobPlugin\libs\_e421b59f3e68a8d4\IvanCraft623\Pathfinder\PathCursor;
+use IvanCraft623\MobPlugin\libs\_e421b59f3e68a8d4\IvanCraft623\Pathfinder\PathInvalidation;
+use IvanCraft623\MobPlugin\libs\_e421b59f3e68a8d4\IvanCraft623\Pathfinder\PathRepair;
+use IvanCraft623\MobPlugin\libs\_e421b59f3e68a8d4\IvanCraft623\Pathfinder\SearchRequest;
 use pocketmine\math\Vector3;
 use function floor;
 use function max;

@@ -24,8 +24,8 @@ declare(strict_types=1);
 namespace IvanCraft623\MobPlugin\loot;
 
 use IvanCraft623\MobPlugin\utils\Utils;
-use kostamax27\loottable\LootContext;
-use kostamax27\loottable\LootDifficulty;
+use IvanCraft623\MobPlugin\libs\_e421b59f3e68a8d4\kostamax27\loottable\LootContext;
+use IvanCraft623\MobPlugin\libs\_e421b59f3e68a8d4\kostamax27\loottable\LootDifficulty;
 use pocketmine\entity\Entity;
 use pocketmine\item\Item;
 use pocketmine\utils\Random;

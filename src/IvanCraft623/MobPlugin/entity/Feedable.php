@@ -25,8 +25,8 @@ namespace IvanCraft623\MobPlugin\entity;
 
 use pocketmine\item\Item;
 
-//It seems you can feed things other than just Animal
-//TODO: maybe it's worth creating a trait :man_shrugging:
+
+
 interface Feedable{
 
 	public function isFood(Item $item) : bool;
