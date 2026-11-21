@@ -24,6 +24,7 @@ declare(strict_types=1);
 namespace IvanCraft623\MobPlugin\entity\monster;
 
 use IvanCraft623\MobPlugin\data\bedrock\VanillaEntitySizes;
+use IvanCraft623\MobPlugin\entity\ai\goal\AvoidEntityGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\creeper\SwellGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\FloatGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\LookAtEntityGoal;
@@ -32,11 +33,14 @@ use IvanCraft623\MobPlugin\entity\ai\goal\RandomLookAroundGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\target\HurtByTargetGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\target\NearestAttackableGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\WaterAvoidingRandomStrollGoal;
+use IvanCraft623\MobPlugin\entity\animal\Feline;
 use IvanCraft623\MobPlugin\entity\Powerable;
+use IvanCraft623\MobPlugin\entity\WearableHeadMob;
 use IvanCraft623\MobPlugin\item\ExtraVanillaItems;
 use IvanCraft623\MobPlugin\loot\VanillaLootTables;
 use IvanCraft623\MobPlugin\utils\Utils;
 
+use pocketmine\block\utils\MobHeadType;
 use pocketmine\entity\EntitySizeInfo;
 use pocketmine\entity\Explosive;
 use pocketmine\entity\Location;
@@ -56,7 +60,7 @@ use pocketmine\world\Explosion;
 use pocketmine\world\sound\IgniteSound;
 use function count;
 
-class Creeper extends Monster implements Explosive, Powerable{
+class Creeper extends Monster implements Explosive, Powerable, WearableHeadMob{
 
 	private const TAG_FUSE = "Fuse"; //TAG_Byte
 	private const TAG_IGNITED = "IsFuseLit"; //TAG_Byte
@@ -70,6 +74,10 @@ class Creeper extends Monster implements Explosive, Powerable{
 	public const DEFAULT_EXPLOSION_RADIUS = 3;
 
 	public static function getNetworkTypeId() : string{ return EntityIds::CREEPER; }
+
+	public function getMobHeadType() : MobHeadType{ return MobHeadType::CREEPER; }
+
+	public function getHeadVisibilityFactor() : float{ return 0.5; }
 
 	protected bool $ignited = false;
 
@@ -96,8 +104,8 @@ class Creeper extends Monster implements Explosive, Powerable{
 	protected function registerGoals() : void{
 		$this->goalSelector->addGoal(1, new FloatGoal($this));
 		$this->goalSelector->addGoal(2, new SwellGoal($this));
-		//TODO: avoid ocelots and cats goal
-		$this->goalSelector->addGoal(4, new MeleeAttackGoal($this, 1.25, false));
+		$this->goalSelector->addGoal(3, new AvoidEntityGoal($this, [Feline::class], 6, 1, 1.2));
+		$this->goalSelector->addGoal(4, new MeleeAttackGoal($this, 1.25));
 		$this->goalSelector->addGoal(5, new WaterAvoidingRandomStrollGoal($this, 1));
 		$this->goalSelector->addGoal(6, new LookAtEntityGoal($this, Player::class, 8));
 		$this->goalSelector->addGoal(6, new RandomLookAroundGoal($this));
@@ -309,7 +317,7 @@ class Creeper extends Monster implements Explosive, Powerable{
 	}
 
 	public function getDrops() : array{
-		return [...parent::getDrops(), ...$this->generateDeathLoot(VanillaLootTables::CREEPER())];
+		return $this->generateDeathLoot(VanillaLootTables::CREEPER());
 	}
 
 	public function getPickedItem() : ?Item{

@@ -25,7 +25,10 @@ namespace IvanCraft623\MobPlugin\entity\ai\goal;
 
 use Closure;
 
+use IvanCraft623\MobPlugin\entity\ItemPickupCapable;
 use IvanCraft623\MobPlugin\entity\PathfinderMob;
+use IvanCraft623\MobPlugin\memory\Memories;
+use IvanCraft623\MobPlugin\memory\Occurrence;
 use pocketmine\entity\object\ItemEntity;
 
 use pocketmine\item\Item;
@@ -35,6 +38,10 @@ use function min;
 use const PHP_INT_MAX;
 
 class PickupItemsGoal extends Goal {
+
+	private const CHECK_INTERVAL = 10;
+
+	private int $checkTimer = 0;
 
 	/** @phpstan-var array<int, int|Closure(Item): int> */
 	private array $wantedItems = [];
@@ -53,9 +60,9 @@ class PickupItemsGoal extends Goal {
 	protected int $wantedCount = 0;
 
 	public function __construct(
-		protected PathfinderMob $entity,
+		protected PathfinderMob&ItemPickupCapable $entity,
 		protected float $speedMultiplier = 1.0,
-		protected float $goalRadius = 2,
+		protected float $goalRadius = 2, //blocks from the mob's body
 		protected float $maxDist = 8.0,
 		protected ?float $searchHeight = null,
 		protected ?int $cooldownAfterBeingAttacked = null,
@@ -92,15 +99,13 @@ class PickupItemsGoal extends Goal {
 	}
 
 	public function canUse() : bool {
-		if (count($this->wantedItems) === 0) {
+		if (count($this->wantedItems) === 0 || --$this->checkTimer > 0) {
 			return false;
 		}
+		$this->checkTimer = $this->reducedTickDelay(self::CHECK_INTERVAL);
 
 		if ($this->cooldownAfterBeingAttacked !== null) {
-			if (
-				($lastDamageTick = $this->entity->getLastDamageByEntityTick()) !== -1 &&
-				$this->entity->getWorld()->getServer()->getTick() - $lastDamageTick < $this->cooldownAfterBeingAttacked
-			) {
+			if (Memories::getInstance()->latest($this->entity, Occurrence::HURT_BY, $this->cooldownAfterBeingAttacked - 1) !== null) {
 				return false;
 			}
 		}
@@ -199,7 +204,9 @@ class PickupItemsGoal extends Goal {
 			$this->entity->getNavigation()->moveToEntity($this->targetItem, $this->speedMultiplier);
 		}
 
-		if ($this->entity->getLocation()->distanceSquared($this->targetItem->getLocation()) <= $this->goalRadius * $this->goalRadius) {
+		//Measured from the mob's body, not its centre: a wide mob stops walking with the item in front of it
+		$reach = $this->entity->getBoundingBox()->expandedCopy($this->goalRadius, 0.5, $this->goalRadius);
+		if ($reach->isVectorInside($this->targetItem->getPosition()->add(0, $this->targetItem->size->getHeight() / 2, 0))) {
 			$this->entity->pickupItem($this->targetItem, min($this->wantedCount, $this->targetItem->getItem()->getCount()));
 			$this->targetItem = null;
 		}

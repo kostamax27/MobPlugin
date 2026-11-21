@@ -27,17 +27,34 @@ use bStats\PocketmineMp\charts\DrilldownPie;
 use bStats\PocketmineMp\charts\SingleLineChart;
 use bStats\PocketmineMp\Metrics;
 
+use IvanCraft623\MobPlugin\bed\BedListener;
+use IvanCraft623\MobPlugin\block\ExtraBlockRegisterHelper;
 use IvanCraft623\MobPlugin\despawning\DespawnListener;
 use IvanCraft623\MobPlugin\despawning\DespawnRuleRegistry;
 use IvanCraft623\MobPlugin\despawning\NaturalDespawnTask;
 use IvanCraft623\MobPlugin\despawning\WorldDespawnPass;
 use IvanCraft623\MobPlugin\entity\ambient\Bat;
 use IvanCraft623\MobPlugin\entity\animal\Axolotl;
+use IvanCraft623\MobPlugin\entity\animal\Cat;
 use IvanCraft623\MobPlugin\entity\animal\Chicken;
 use IvanCraft623\MobPlugin\entity\animal\Cow;
+use IvanCraft623\MobPlugin\entity\animal\Fox;
+use IvanCraft623\MobPlugin\entity\animal\Goat;
 use IvanCraft623\MobPlugin\entity\animal\MooshroomCow;
+use IvanCraft623\MobPlugin\entity\animal\Ocelot;
+use IvanCraft623\MobPlugin\entity\animal\Panda;
 use IvanCraft623\MobPlugin\entity\animal\Pig;
+use IvanCraft623\MobPlugin\entity\animal\PolarBear;
+use IvanCraft623\MobPlugin\entity\animal\Rabbit;
 use IvanCraft623\MobPlugin\entity\animal\Sheep;
+use IvanCraft623\MobPlugin\entity\animal\Turtle;
+use IvanCraft623\MobPlugin\entity\animal\Wolf;
+use IvanCraft623\MobPlugin\entity\aquatic\Cod;
+use IvanCraft623\MobPlugin\entity\aquatic\GlowSquid;
+use IvanCraft623\MobPlugin\entity\aquatic\Pufferfish;
+use IvanCraft623\MobPlugin\entity\aquatic\Salmon;
+use IvanCraft623\MobPlugin\entity\aquatic\TropicalFish;
+use IvanCraft623\MobPlugin\entity\aquatic\TropicalFishPreset;
 use IvanCraft623\MobPlugin\entity\boss\Wither;
 use IvanCraft623\MobPlugin\entity\CustomAttributes;
 use IvanCraft623\MobPlugin\entity\golem\IronGolem;
@@ -45,16 +62,28 @@ use IvanCraft623\MobPlugin\entity\golem\SnowGolem;
 use IvanCraft623\MobPlugin\entity\Mob;
 use IvanCraft623\MobPlugin\entity\monster\CaveSpider;
 use IvanCraft623\MobPlugin\entity\monster\Creeper;
+use IvanCraft623\MobPlugin\entity\monster\Drowned;
 use IvanCraft623\MobPlugin\entity\monster\Enderman;
 use IvanCraft623\MobPlugin\entity\monster\Endermite;
+use IvanCraft623\MobPlugin\entity\monster\Husk;
+use IvanCraft623\MobPlugin\entity\monster\illager\Vindicator;
+use IvanCraft623\MobPlugin\entity\monster\MagmaCube;
+use IvanCraft623\MobPlugin\entity\monster\Silverfish;
+use IvanCraft623\MobPlugin\entity\monster\skeleton\Bogged;
 use IvanCraft623\MobPlugin\entity\monster\skeleton\Skeleton;
 use IvanCraft623\MobPlugin\entity\monster\skeleton\Stray;
 use IvanCraft623\MobPlugin\entity\monster\skeleton\WitherSkeleton;
 use IvanCraft623\MobPlugin\entity\monster\Slime;
 use IvanCraft623\MobPlugin\entity\monster\Spider;
+use IvanCraft623\MobPlugin\entity\monster\Witch;
 use IvanCraft623\MobPlugin\entity\monster\Zombie;
+use IvanCraft623\MobPlugin\entity\monster\ZombifiedPiglin;
 use IvanCraft623\MobPlugin\item\ExtraItemRegisterHelper;
 use IvanCraft623\MobPlugin\loot\LootTableRegistry;
+use IvanCraft623\MobPlugin\memory\MemoryListener;
+use IvanCraft623\MobPlugin\spawning\event\SpawnEventRegistry;
+use IvanCraft623\MobPlugin\spawning\event\TropicalFishPresetSpawnEventMap;
+use IvanCraft623\MobPlugin\spawning\event\VanillaSpawnEvents;
 use IvanCraft623\MobPlugin\spawning\NaturalSpawnerTask;
 use IvanCraft623\MobPlugin\spawning\parse\SpawnRulesParseException;
 use IvanCraft623\MobPlugin\spawning\SpawnRuleRegistry;
@@ -100,13 +129,35 @@ class MobPlugin extends PluginBase {
 		Creeper::class,
 		Enderman::class,
 		Endermite::class,
+		Silverfish::class,
 		Slime::class,
 		Spider::class,
 		Zombie::class,
+		Husk::class,
+		Cod::class,
+		Salmon::class,
+		TropicalFish::class,
+		GlowSquid::class,
+		MagmaCube::class,
+		Bogged::class,
+		Vindicator::class,
+		ZombifiedPiglin::class,
 		Skeleton::class,
 		Stray::class,
 		WitherSkeleton::class,
-		Wither::class
+		Wither::class,
+		Pufferfish::class,
+		Drowned::class,
+		PolarBear::class,
+		Rabbit::class,
+		Witch::class,
+		Wolf::class,
+		Cat::class,
+		Ocelot::class,
+		Fox::class,
+		Goat::class,
+		Turtle::class,
+		Panda::class
 	];
 
 	private ?Random $random = null;
@@ -134,12 +185,15 @@ class MobPlugin extends PluginBase {
 		$this->registerNaturalSpawning();
 		$this->registerNaturalDespawning();
 
+		ExtraBlockRegisterHelper::init();
 		ExtraItemRegisterHelper::init();
 
 		BossBarAPI::load($this);
 
 		$this->getServer()->getPluginManager()->registerEvents(new EventListener(), $this);
 		$this->getServer()->getPluginManager()->registerEvents(new DespawnListener(DespawnRuleRegistry::getInstance()), $this);
+		$this->getServer()->getPluginManager()->registerEvents(new MemoryListener(), $this);
+		$this->getServer()->getPluginManager()->registerEvents(BedListener::getInstance(), $this);
 	}
 
 	/**
@@ -170,8 +224,24 @@ class MobPlugin extends PluginBase {
 		}), 1);
 	}
 
+	/**
+	 * What the mobs do for the spawn events beyond the registry's own.
+	 */
+	public static function registerSpawnEvents(SpawnEventRegistry $registry) : void{
+		$registry->register(VanillaSpawnEvents::AS_RIDER, Drowned::class, static fn(Drowned $drowned) => $drowned->becomeRider());
+		$registry->registerVariants(
+			TropicalFish::class,
+			TropicalFishPresetSpawnEventMap::getInstance()->getAll(),
+			static function(TropicalFish $fish, TropicalFishPreset $preset) : void{
+				$fish->setVariant($preset->getShape(), $preset->getPattern(), $preset->getBaseColor(), $preset->getPatternColor());
+			}
+		);
+	}
+
 	private function registerNaturalSpawning() : void{
 		$settings = Settings::getGlobalSettings();
+
+		self::registerSpawnEvents(SpawnEventRegistry::getInstance());
 
 		$this->getScheduler()->scheduleRepeatingTask(new NaturalSpawnerTask(
 			SpawnRuleRegistry::getInstance(),

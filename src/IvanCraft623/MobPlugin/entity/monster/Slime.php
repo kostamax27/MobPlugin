@@ -25,11 +25,16 @@ namespace IvanCraft623\MobPlugin\entity\monster;
 
 use Closure;
 use IvanCraft623\MobPlugin\data\bedrock\SlimeTypeIdMap;
+use IvanCraft623\MobPlugin\data\bedrock\VanillaEntitySizes;
+use IvanCraft623\MobPlugin\entity\ai\control\MoveControl;
 use IvanCraft623\MobPlugin\entity\ai\goal\slime\SlimeAttackGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\slime\SlimeFloatGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\slime\SlimeKeepOnJumpingGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\slime\SlimeRandomDirectionGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\target\NearestAttackableGoal;
+use IvanCraft623\MobPlugin\entity\golem\IronGolem;
+use IvanCraft623\MobPlugin\entity\golem\SnowGolem;
+use IvanCraft623\MobPlugin\entity\HopperTrait;
 use IvanCraft623\MobPlugin\entity\Mob;
 use IvanCraft623\MobPlugin\entity\monster\slime\SlimeMoveControl;
 use IvanCraft623\MobPlugin\entity\monster\slime\SlimeType;
@@ -49,6 +54,7 @@ use function array_rand;
 use function assert;
 
 class Slime extends Mob implements Enemy {
+	use HopperTrait;
 
 	private const BOUNCE_METADATA_PROPERTY = 24; //byte
 	private const BOUNCE_SQUISH = 1;
@@ -66,13 +72,15 @@ class Slime extends Mob implements Enemy {
 	protected Closure $attackableValidator;
 
 	protected function getInitialSizeInfo() : EntitySizeInfo{
-		if (isset($this->type)) {
-			$scale = $this->type->getScale();
-		} else {
-			$scale = 4;
-		}
+		return $this->getSizeInfoOf($this->type ?? SlimeType::LARGE);
+	}
 
-		return new EntitySizeInfo($scale * 0.52, $scale * 0.52);
+	protected function getSizeInfoOf(SlimeType $type) : EntitySizeInfo{
+		return match($type){
+			SlimeType::SMALL => new EntitySizeInfo(VanillaEntitySizes::SLIME_SMALL_HEIGHT, VanillaEntitySizes::SLIME_SMALL_WIDTH),
+			SlimeType::MEDIUM => new EntitySizeInfo(VanillaEntitySizes::SLIME_MEDIUM_HEIGHT, VanillaEntitySizes::SLIME_MEDIUM_WIDTH),
+			SlimeType::LARGE => new EntitySizeInfo(VanillaEntitySizes::SLIME_LARGE_HEIGHT, VanillaEntitySizes::SLIME_LARGE_WIDTH)
+		};
 	}
 
 	public function getName() : string{
@@ -86,7 +94,7 @@ class Slime extends Mob implements Enemy {
 		$this->goalSelector->addGoal(5, new SlimeKeepOnJumpingGoal($this));
 
 		$this->attackableValidator = static function(Living $entity) : bool{
-			return $entity instanceof Player; //TODO: Attack iron golems and snow golems.
+			return $entity instanceof Player || $entity instanceof IronGolem || $entity instanceof SnowGolem;
 		};
 		$this->targetSelector->addGoal(1, new NearestAttackableGoal($this, Living::class, targetValidator: $this->attackableValidator));
 	}
@@ -100,8 +108,6 @@ class Slime extends Mob implements Enemy {
 		$this->setType($slimeType);
 
 		parent::initEntity($nbt);
-
-		$this->moveControl = new SlimeMoveControl($this);
 	}
 
 	public function saveNBT() : CompoundTag{
@@ -133,7 +139,11 @@ class Slime extends Mob implements Enemy {
 		$this->setMaxHealth($this->type->getHealth());
 		$this->setHealth($this->type->getHealth());
 		$this->setMovementSpeed($this->getDefaultMovementSpeed());
-		$this->setAttackDamage($this->type->getAttackDamage());
+		$this->setAttackDamage($this->getTypeAttackDamage());
+	}
+
+	protected function createMoveControl() : MoveControl{
+		return new SlimeMoveControl($this);
 	}
 
 	public function getMoveControl() : SlimeMoveControl{
@@ -142,7 +152,23 @@ class Slime extends Mob implements Enemy {
 	}
 
 	public function getDefaultMovementSpeed() : float{
-		return $this->type->getDefaultMovementSpeed();
+		return match($this->type){
+			SlimeType::SMALL => 0.3,
+			SlimeType::MEDIUM => 0.4,
+			SlimeType::LARGE => 0.6
+		};
+	}
+
+	protected function createSplit() : Slime{
+		return new Slime($this->getLocation());
+	}
+
+	protected function getTypeAttackDamage() : float{
+		return match($this->type){
+			SlimeType::SMALL => 0,
+			SlimeType::MEDIUM => 2,
+			SlimeType::LARGE => 4
+		};
 	}
 
 	public function getType() : SlimeType{
@@ -195,7 +221,7 @@ class Slime extends Mob implements Enemy {
 		if ($shouldDespawn && ($slimeType = $this->type->getSplitType()) !== null) {
 			$splitAmount = 2 + $this->random->nextBoundedInt(3);
 			for ($i = 0; $i < $splitAmount; $i++) {
-				$slime = new Slime($this->getLocation());
+				$slime = $this->createSplit();
 				$slime->setType($slimeType);
 				(new MobSpawnEvent($slime, MobSpawnCause::SPLIT, $this))->call();
 				$slime->spawnToAll();

@@ -27,8 +27,10 @@ use IvanCraft623\MobPlugin\entity\ai\goal\Goal;
 use IvanCraft623\MobPlugin\entity\ai\targeting\TargetingConditions;
 
 use IvanCraft623\MobPlugin\entity\Mob;
+use IvanCraft623\MobPlugin\memory\Memories;
+use IvanCraft623\MobPlugin\memory\Memory;
+use IvanCraft623\MobPlugin\memory\Occurrence;
 use pocketmine\entity\Living;
-use pocketmine\event\entity\EntityDamageByEntityEvent;
 
 class HurtByTargetGoal extends TargetGoal {
 
@@ -44,7 +46,11 @@ class HurtByTargetGoal extends TargetGoal {
 
 	private bool $alertSameType = false;
 
+	private ?float $alertRange = null; //blocks, horizontally, null to alert as far as it follows
+
 	private int $lastDamageTick = -1;
+
+	private ?Memory $pending = null; //the hit that is about to start
 
 	/** @phpstan-var class-string<Living>[] */
 	private array $ignoredDamagers = [];
@@ -80,35 +86,52 @@ class HurtByTargetGoal extends TargetGoal {
 		return $this;
 	}
 
+	/**
+	 * @param float $range blocks, horizontally
+	 *
+	 * @return $this
+	 */
+	public function setAlertRange(float $range) : self{
+		$this->alertRange = $range;
+
+		return $this;
+	}
+
 	public function canUse() : bool{
-		$lastDamageTick = $this->entity->getLastDamageByEntityTick();
-		$lastDamage = $this->entity->getLastDamageByEntity();
-		if ($lastDamageTick !== $this->lastDamageTick && $lastDamage !== null) {
-			$damager = $lastDamage->getDamager();
-			if (!$damager instanceof Living) {
+		$memory = Memories::getInstance()->latest($this->entity, Occurrence::HURT_BY, Mob::HURT_BY_MEMORY_TICKS);
+		if ($memory === null || $memory->getTick() === $this->lastDamageTick) {
+			return false;
+		}
+
+		$damager = $memory->getEntity();
+		if (!$damager instanceof Living) {
+			return false;
+		}
+
+		foreach ($this->ignoredDamagers as $ignoredDamager) {
+			if ($damager instanceof $ignoredDamager) {
 				return false;
 			}
-
-			foreach ($this->ignoredDamagers as $ignoredDamager) {
-				if ($damager instanceof $ignoredDamager) {
-					return false;
-				}
-			}
-			return $this->canAttack($damager, $this->targetingConditions);
 		}
-		return false;
+		if (!$this->canAttack($damager, $this->targetingConditions)) {
+			return false;
+		}
+
+		$this->target = $damager;
+		$this->pending = $memory;
+
+		return true;
 	}
 
 	public function start() : void{
-		/** @var EntityDamageByEntityEvent $lastDamage*/
-		$lastDamage = $this->entity->getLastDamageByEntity();
-
 		/** @var Living $target*/
-		$target = $lastDamage->getDamager();
+		$target = $this->target;
+
+		/** @var Memory $hit */
+		$hit = $this->pending;
 
 		$this->entity->setTargetEntity($target);
-		$this->target = $target;
-		$this->lastDamageTick = $this->entity->getLastDamageByEntityTick();
+		$this->lastDamageTick = $hit->getTick();
 		$this->unseenMemoryTicks = 300;
 
 		if ($this->alertSameType) {
@@ -119,7 +142,7 @@ class HurtByTargetGoal extends TargetGoal {
 	}
 
 	protected function alertOthers(Living $target) : void{
-		foreach ($this->entity->getSensing()->getNearbyLiving($this->getFollowDistance(), self::ALERT_RANGE_Y) as $other) {
+		foreach ($this->entity->getSensing()->getNearbyLiving($this->alertRange ?? $this->getFollowDistance(), self::ALERT_RANGE_Y) as $other) {
 			if ($other instanceof $this->entity &&
 				$other->getTargetEntityId() === null &&
 				!$this->shouldIgnoreAlert($other)

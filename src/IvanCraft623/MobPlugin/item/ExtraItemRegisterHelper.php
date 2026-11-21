@@ -23,6 +23,7 @@ declare(strict_types=1);
 
 namespace IvanCraft623\MobPlugin\item;
 
+use pocketmine\data\bedrock\block\BlockTypeNames;
 use pocketmine\data\bedrock\item\ItemTypeNames;
 use pocketmine\data\bedrock\item\SavedItemData;
 use pocketmine\item\Item;
@@ -47,6 +48,7 @@ final class ExtraItemRegisterHelper{
 
 	public static function registerItems() : void{
 		self::registerSimpleItem(ItemTypeNames::ENDERMITE_SPAWN_EGG, ExtraVanillaItems::ENDERMITE_SPAWN_EGG(), ["endermite_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::SILVERFISH_SPAWN_EGG, ExtraVanillaItems::SILVERFISH_SPAWN_EGG(), ["silverfish_spawn_egg"]);
 		self::registerSimpleItem(ItemTypeNames::MOOSHROOM_SPAWN_EGG, ExtraVanillaItems::MOOSHROOM_SPAWN_EGG(), ["mooshroom_spawn_egg"]);
 		self::registerSimpleItem(ItemTypeNames::COW_SPAWN_EGG, ExtraVanillaItems::COW_SPAWN_EGG(), ["cow_spawn_egg"]);
 		self::registerSimpleItem(ItemTypeNames::SHEEP_SPAWN_EGG, ExtraVanillaItems::SHEEP_SPAWN_EGG(), ["sheep_spawn_egg"]);
@@ -65,8 +67,36 @@ final class ExtraItemRegisterHelper{
 		self::registerSimpleItem(ItemTypeNames::WITHER_SKELETON_SPAWN_EGG, ExtraVanillaItems::WITHER_SKELETON_SPAWN_EGG(), ["wither_skeleton_spawn_egg"]);
 		self::registerSimpleItem(ItemTypeNames::WITHER_SPAWN_EGG, ExtraVanillaItems::WITHER_SPAWN_EGG(), ["wither_spawn_egg"]);
 		self::registerSimpleItem(ItemTypeNames::AXOLOTL_SPAWN_EGG, ExtraVanillaItems::AXOLOTL_SPAWN_EGG(), ["axolotl_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::HUSK_SPAWN_EGG, ExtraVanillaItems::HUSK_SPAWN_EGG(), ["husk_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::COD_SPAWN_EGG, ExtraVanillaItems::COD_SPAWN_EGG(), ["cod_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::COD_BUCKET, ExtraVanillaItems::COD_BUCKET(), ["cod_bucket"]);
+		self::registerSimpleItem(ItemTypeNames::SALMON_SPAWN_EGG, ExtraVanillaItems::SALMON_SPAWN_EGG(), ["salmon_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::SALMON_BUCKET, ExtraVanillaItems::SALMON_BUCKET(), ["salmon_bucket"]);
+		self::registerSimpleItem(ItemTypeNames::TROPICAL_FISH_SPAWN_EGG, ExtraVanillaItems::TROPICAL_FISH_SPAWN_EGG(), ["tropical_fish_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::GLOW_SQUID_SPAWN_EGG, ExtraVanillaItems::GLOW_SQUID_SPAWN_EGG(), ["glow_squid_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::MAGMA_CUBE_SPAWN_EGG, ExtraVanillaItems::MAGMA_CUBE_SPAWN_EGG(), ["magma_cube_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::BOGGED_SPAWN_EGG, ExtraVanillaItems::BOGGED_SPAWN_EGG(), ["bogged_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::VINDICATOR_SPAWN_EGG, ExtraVanillaItems::VINDICATOR_SPAWN_EGG(), ["vindicator_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::ZOMBIE_PIGMAN_SPAWN_EGG, ExtraVanillaItems::ZOMBIE_PIGMAN_SPAWN_EGG(), ["zombie_pigman_spawn_egg"]);
 		self::registerSimpleItem(ItemTypeNames::AXOLOTL_BUCKET, ExtraVanillaItems::AXOLOTL_BUCKET(), ["axolotl_bucket"]);
 		self::registerSimpleItem(ItemTypeNames::TROPICAL_FISH_BUCKET, ExtraVanillaItems::TROPICAL_FISH_BUCKET(), ["tropical_fish_bucket"]);
+		self::registerSimpleItem(ItemTypeNames::PUFFERFISH_SPAWN_EGG, ExtraVanillaItems::PUFFERFISH_SPAWN_EGG(), ["pufferfish_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::PUFFERFISH_BUCKET, ExtraVanillaItems::PUFFERFISH_BUCKET(), ["pufferfish_bucket"]);
+		self::registerSimpleItem(ItemTypeNames::DROWNED_SPAWN_EGG, ExtraVanillaItems::DROWNED_SPAWN_EGG(), ["drowned_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::POLAR_BEAR_SPAWN_EGG, ExtraVanillaItems::POLAR_BEAR_SPAWN_EGG(), ["polar_bear_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::RABBIT_SPAWN_EGG, ExtraVanillaItems::RABBIT_SPAWN_EGG(), ["rabbit_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::WITCH_SPAWN_EGG, ExtraVanillaItems::WITCH_SPAWN_EGG(), ["witch_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::WOLF_SPAWN_EGG, ExtraVanillaItems::WOLF_SPAWN_EGG(), ["wolf_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::CAT_SPAWN_EGG, ExtraVanillaItems::CAT_SPAWN_EGG(), ["cat_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::OCELOT_SPAWN_EGG, ExtraVanillaItems::OCELOT_SPAWN_EGG(), ["ocelot_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::GOAT_SPAWN_EGG, ExtraVanillaItems::GOAT_SPAWN_EGG(), ["goat_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::FOX_SPAWN_EGG, ExtraVanillaItems::FOX_SPAWN_EGG(), ["fox_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::WOLF_ARMOR, ExtraVanillaItems::WOLF_ARMOR(), ["wolf_armor"]);
+		self::registerSimpleItem(ItemTypeNames::ARMADILLO_SCUTE, ExtraVanillaItems::ARMADILLO_SCUTE(), ["armadillo_scute"]);
+		self::registerSimpleItem(ItemTypeNames::TURTLE_SCUTE, ExtraVanillaItems::TURTLE_SCUTE(), ["turtle_scute"]);
+		self::registerSimpleItem(BlockTypeNames::SEAGRASS, ExtraVanillaItems::SEAGRASS(), ["seagrass"]);
+		self::registerSimpleItem(ItemTypeNames::TURTLE_SPAWN_EGG, ExtraVanillaItems::TURTLE_SPAWN_EGG(), ["turtle_spawn_egg"]);
+		self::registerSimpleItem(ItemTypeNames::PANDA_SPAWN_EGG, ExtraVanillaItems::PANDA_SPAWN_EGG(), ["panda_spawn_egg"]);
 	}
 
 	/**

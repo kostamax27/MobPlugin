@@ -25,22 +25,44 @@ namespace IvanCraft623\MobPlugin\despawning;
 
 use IvanCraft623\MobPlugin\entity\ambient\Bat;
 use IvanCraft623\MobPlugin\entity\animal\Axolotl;
+use IvanCraft623\MobPlugin\entity\animal\Cat;
 use IvanCraft623\MobPlugin\entity\animal\Chicken;
 use IvanCraft623\MobPlugin\entity\animal\Cow;
+use IvanCraft623\MobPlugin\entity\animal\Fox;
+use IvanCraft623\MobPlugin\entity\animal\Goat;
 use IvanCraft623\MobPlugin\entity\animal\MooshroomCow;
+use IvanCraft623\MobPlugin\entity\animal\Ocelot;
+use IvanCraft623\MobPlugin\entity\animal\Panda;
 use IvanCraft623\MobPlugin\entity\animal\Pig;
+use IvanCraft623\MobPlugin\entity\animal\PolarBear;
+use IvanCraft623\MobPlugin\entity\animal\Rabbit;
 use IvanCraft623\MobPlugin\entity\animal\Sheep;
+use IvanCraft623\MobPlugin\entity\animal\Turtle;
+use IvanCraft623\MobPlugin\entity\animal\Wolf;
+use IvanCraft623\MobPlugin\entity\aquatic\Cod;
+use IvanCraft623\MobPlugin\entity\aquatic\GlowSquid;
+use IvanCraft623\MobPlugin\entity\aquatic\Pufferfish;
+use IvanCraft623\MobPlugin\entity\aquatic\Salmon;
+use IvanCraft623\MobPlugin\entity\aquatic\TropicalFish;
 use IvanCraft623\MobPlugin\entity\boss\Wither;
 use IvanCraft623\MobPlugin\entity\monster\CaveSpider;
 use IvanCraft623\MobPlugin\entity\monster\Creeper;
+use IvanCraft623\MobPlugin\entity\monster\Drowned;
 use IvanCraft623\MobPlugin\entity\monster\Enderman;
 use IvanCraft623\MobPlugin\entity\monster\Endermite;
+use IvanCraft623\MobPlugin\entity\monster\Husk;
+use IvanCraft623\MobPlugin\entity\monster\illager\Vindicator;
+use IvanCraft623\MobPlugin\entity\monster\MagmaCube;
+use IvanCraft623\MobPlugin\entity\monster\Silverfish;
+use IvanCraft623\MobPlugin\entity\monster\skeleton\Bogged;
 use IvanCraft623\MobPlugin\entity\monster\skeleton\Skeleton;
 use IvanCraft623\MobPlugin\entity\monster\skeleton\Stray;
 use IvanCraft623\MobPlugin\entity\monster\skeleton\WitherSkeleton;
 use IvanCraft623\MobPlugin\entity\monster\Slime;
 use IvanCraft623\MobPlugin\entity\monster\Spider;
+use IvanCraft623\MobPlugin\entity\monster\Witch;
 use IvanCraft623\MobPlugin\entity\monster\Zombie;
+use IvanCraft623\MobPlugin\entity\monster\ZombifiedPiglin;
 use pocketmine\entity\Entity;
 use pocketmine\entity\Squid;
 use pocketmine\utils\SingletonTrait;
@@ -73,21 +95,37 @@ final class DespawnRuleRegistry{
 			Bat::class,
 			Chicken::class,
 			Cow::class,
+			Fox::class,
+			Goat::class,
 			MooshroomCow::class,
+			Ocelot::class,
+			Panda::class,
 			Pig::class,
+			PolarBear::class,
+			Rabbit::class,
 			Sheep::class,
+			Turtle::class,
+			GlowSquid::class,
 			Squid::class // implemented by PocketMine-MP
 		] as $entityClass){
 			$this->register(new DespawnRule($entityClass));
 		}
+		$this->register(new DespawnRule(Cat::class, persistentWhile: static fn(Cat $cat) : bool => $cat->isTamed()));
+		$this->register(new DespawnRule(Wolf::class, persistentWhile: static fn(Wolf $wolf) : bool => $wolf->isTamed()));
 		foreach([
+			Bogged::class,
 			CaveSpider::class,
 			Creeper::class,
 			Skeleton::class,
 			Spider::class,
 			Stray::class,
 			WitherSkeleton::class,
-			Zombie::class
+			Husk::class,
+			Drowned::class,
+			Vindicator::class,
+			Witch::class,
+			Zombie::class,
+			ZombifiedPiglin::class
 		] as $entityClass){
 			$this->register(DespawnRule::monster($entityClass));
 		}
@@ -96,9 +134,19 @@ final class DespawnRuleRegistry{
 			persistentWhile: static fn(Enderman $enderman) : bool => $enderman->getCarriedBlock() !== null
 		));
 		$this->register(DespawnRule::monster(Endermite::class, maxLifetime: 2400));
+		$this->register(DespawnRule::monster(Silverfish::class));
+		$this->register(DespawnRule::monster(MagmaCube::class));
+		foreach([
+			Cod::class,
+			Pufferfish::class,
+			Salmon::class,
+			TropicalFish::class
+		] as $entityClass){
+			$this->register(new DespawnRule($entityClass, maxDistance: 40));
+		}
 		$this->register(DespawnRule::monster(
 			Slime::class,
-			difficultyCondition: static fn(Slime $slime) : bool => $slime->getType()->getAttackDamage() > 0 // the smallest are harmless
+			difficultyCondition: static fn(Slime $slime) : bool => $slime->getAttackDamage() > 0 // the smallest are harmless
 		));
 		$this->register(new DespawnRule(
 			Wither::class,

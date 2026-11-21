@@ -35,19 +35,26 @@ use function max;
 use function min;
 use const PHP_INT_MAX;
 
+/**
+ * Finds blocks by type, nearest first by Manhattan distance.
+ */
 class NearestBlockFinder {
 
-	/** @var array<int, array<int, true>> block type id => its state ids */
-	private static array $stateIdsByType = [];
+	/** @var array<int, array<int, true>>|null block type id => its state ids, built when first needed */
+	private static ?array $stateIdsByType = null;
 
 	/**
-	 * Yields the positions of the blocks of the type in the box around the origin, nearest
-	 * first (by Manhattan distance), skipping unloaded chunks. Coordinates are integers.
+	 * Yields the positions of blocks of the types in the box around the origin, nearest first, skipping unloaded
+	 * chunks. Lazy: stopping early skips the rest of the box. Filter on the block's state with World::getBlockAt().
 	 *
 	 * @phpstan-return \Generator<int, Vector3, void, void>
 	 */
-	public static function find(World $world, Vector3 $origin, int $horizontalRange, int $verticalRange, int $typeId) : \Generator{
-		$stateIds = self::getStateIds($typeId);
+	public static function find(World $world, Vector3 $origin, int $horizontalRange, int $verticalRange, int ...$typeIds) : \Generator{
+		$stateIds = [];
+		foreach ($typeIds as $typeId) {
+			$stateIds += self::getStateIds($typeId);
+		}
+
 		$originX = $origin->getFloorX();
 		$originY = $origin->getFloorY();
 		$originZ = $origin->getFloorZ();
@@ -59,7 +66,7 @@ class NearestBlockFinder {
 		$searchMinZ = $originZ - $horizontalRange;
 		$searchMaxZ = $originZ + $horizontalRange;
 
-		// The first layers that may hold the type, and the distances they span
+		// Sections that may hold the types, and the distances they span
 		/** @var array<int, array<int, array<int, PalettedBlockArray>>> $layers chunk x => section y => chunk z => first layer */
 		$layers = [];
 		$minDistance = PHP_INT_MAX;
@@ -101,19 +108,19 @@ class NearestBlockFinder {
 			return;
 		}
 
-		// Walk the shells of equal distance outwards, only between the nearest and farthest candidate section
+		// Shells of equal distance outwards, between the nearest and farthest section
 		$maxDistanceY = max($originY - $searchMinY, $searchMaxY - $originY);
 		for ($distance = $minDistance; $distance <= $maxDistance; ++$distance) {
 			$reachX = min($distance, $horizontalRange);
 			for ($x = $originX - $reachX; $x <= $originX + $reachX; ++$x) {
-				// Skip the columns of chunks without candidate sections
+				// Skip chunks without candidate sections
 				$layersAtX = $layers[$x >> Chunk::COORD_BIT_SIZE] ?? null;
 				if ($layersAtX === null) {
 					continue;
 				}
 
 				$restX = $distance - abs($x - $originX);
-				// No height can make up the rest within the horizontal range
+				// No height makes up the rest within the horizontal range
 				if ($restX - $horizontalRange > $maxDistanceY) {
 					continue;
 				}
@@ -123,12 +130,12 @@ class NearestBlockFinder {
 				for ($y = $originY - $restX > $searchMinY ? $originY - $restX : $searchMinY; $y <= $toY; ++$y) {
 					$restZ = $restX - abs($y - $originY);
 					if ($restZ > $horizontalRange) {
-						// Heights this near the origin leave too much for z, jump to the first one above that doesn't
+						// Too much left for z at this height, jump to the first that isn't
 						$y = $originY + $restX - $horizontalRange - 1;
 						continue;
 					}
 
-					// And the heights of sections without them
+					// And sections without them
 					$layersAtXY = $layersAtX[$y >> SubChunk::COORD_BIT_SIZE] ?? null;
 					if ($layersAtXY === null) {
 						continue;
@@ -154,17 +161,14 @@ class NearestBlockFinder {
 	 * @return array<int, true>
 	 */
 	private static function getStateIds(int $typeId) : array{
-		if (!isset(self::$stateIdsByType[$typeId])) {
-			$stateIds = [];
+		if (self::$stateIdsByType === null) {
+			self::$stateIdsByType = [];
 			foreach (RuntimeBlockStateRegistry::getInstance()->getAllKnownStates() as $stateId => $block) {
-				if ($block->getTypeId() === $typeId) {
-					$stateIds[$stateId] = true;
-				}
+				self::$stateIdsByType[$block->getTypeId()][$stateId] = true;
 			}
-			self::$stateIdsByType[$typeId] = $stateIds;
 		}
 
-		return self::$stateIdsByType[$typeId];
+		return self::$stateIdsByType[$typeId] ?? [];
 	}
 
 	/**

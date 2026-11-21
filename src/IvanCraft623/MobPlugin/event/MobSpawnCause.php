@@ -27,12 +27,16 @@ enum MobSpawnCause{
 	case NATURAL;
 	case BUILT;
 	case BREEDING;
+	case HATCHING;
 	case SPLIT;
 	case SUMMONED;
 	case CONVERSION;
 	case SPAWN_EGG;
 	case BUCKET;
 	case ENDER_PEARL;
-	/** For plugins that spawn mobs their own way. */
+	case INFESTED_BLOCK;
+	/**
+	 * For plugins that spawn mobs their own way.
+	 */
 	case CUSTOM;
 }

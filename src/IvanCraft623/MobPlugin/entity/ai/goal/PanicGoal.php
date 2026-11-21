@@ -25,7 +25,11 @@ namespace IvanCraft623\MobPlugin\entity\ai\goal;
 
 use IvanCraft623\MobPlugin\entity\ai\utils\DefaultPositionGenerator;
 use IvanCraft623\MobPlugin\entity\ai\utils\NearestBlockFinder;
+use IvanCraft623\MobPlugin\entity\Mob;
 use IvanCraft623\MobPlugin\entity\PathfinderMob;
+use IvanCraft623\MobPlugin\entity\Pet;
+use IvanCraft623\MobPlugin\memory\Memories;
+use IvanCraft623\MobPlugin\memory\Occurrence;
 
 use pocketmine\block\BlockTypeIds;
 use pocketmine\entity\Entity;
@@ -40,7 +44,8 @@ class PanicGoal extends Goal {
 
 	public function __construct(
 		protected PathfinderMob $entity,
-		protected float $speedModifier
+		protected float $speedModifier,
+		protected bool $preferWater = false
 	) {
 		$this->setFlags(Goal::FLAG_MOVE);
 	}
@@ -51,7 +56,7 @@ class PanicGoal extends Goal {
 		}
 
 		//Actually this behavior only happens in java, but it's a cool feature B)
-		if ($this->entity->isOnFire()) {
+		if ($this->preferWater || $this->entity->isOnFire()) {
 			$target = $this->lookForWater($this->entity, 5);
 			if ($target !== null) {
 				$this->target = $target;
@@ -70,7 +75,8 @@ class PanicGoal extends Goal {
 
 	protected function shouldPanic() : bool{
 		//TODO: check if it is freezing
-		return $this->entity->getExpirableLastDamageByEntity() !== null || $this->entity->isOnFire();
+		return Memories::getInstance()->latest($this->entity, Occurrence::HURT_BY, Mob::HURT_BY_MEMORY_TICKS) !== null ||
+			$this->entity->isOnFire();
 	}
 
 	protected function findRandomPosition() : ?Vector3 {
@@ -93,6 +99,10 @@ class PanicGoal extends Goal {
 	}
 
 	public function start() : void{
+		if ($this->entity instanceof Pet) {
+			$this->entity->setSitting(false);
+		}
+
 		$this->entity->getNavigation()->moveToXYZ($this->target->x, $this->target->y, $this->target->z, $this->speedModifier);
 	}
 

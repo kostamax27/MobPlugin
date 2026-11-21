@@ -32,6 +32,9 @@ use IvanCraft623\MobPlugin\entity\ai\goal\RandomLookAroundGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\RandomStrollGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\target\HurtByTargetGoal;
 use IvanCraft623\MobPlugin\entity\ai\goal\target\NearestAttackableGoal;
+use IvanCraft623\MobPlugin\entity\Crackiness;
+use IvanCraft623\MobPlugin\entity\Healable;
+use IvanCraft623\MobPlugin\entity\HealableTrait;
 use IvanCraft623\MobPlugin\entity\monster\Creeper;
 use IvanCraft623\MobPlugin\entity\monster\Enemy;
 use IvanCraft623\MobPlugin\entity\NeutralMob;
@@ -41,7 +44,6 @@ use IvanCraft623\MobPlugin\loot\VanillaLootTables;
 use IvanCraft623\MobPlugin\sound\IronGolemCrackSound;
 use IvanCraft623\MobPlugin\sound\IronGolemRepairSound;
 use IvanCraft623\MobPlugin\sound\ThrowSound;
-use IvanCraft623\MobPlugin\utils\Utils;
 
 use pocketmine\entity\EntitySizeInfo;
 use pocketmine\entity\Living as PMLiving;
@@ -50,21 +52,23 @@ use pocketmine\item\Item;
 use pocketmine\item\ItemTypeIds;
 use pocketmine\math\Vector3;
 use pocketmine\nbt\tag\CompoundTag;
-use pocketmine\network\mcpe\EntityEventBroadcaster;
-use pocketmine\network\mcpe\NetworkBroadcastUtils;
 use pocketmine\network\mcpe\protocol\types\entity\EntityIds;
 use pocketmine\network\mcpe\protocol\types\entity\EntityMetadataCollection;
 use pocketmine\network\mcpe\protocol\types\entity\EntityMetadataFlags;
 use pocketmine\player\Player;
 
-use function min;
 use function mt_rand;
 
-class IronGolem extends Golem implements NeutralMob{
+class IronGolem extends Golem implements NeutralMob, Healable{
 	use NeutralMobTrait;
+	use HealableTrait{
+		onInteract as protected interactHealable;
+	}
 
 	private const COMPONENT_GROUP_PLAYER_CREATED = "minecraft:player_created";
 	private const COMPONENT_GROUP_VILLAGE_CREATED = "minecraft:village_created";
+
+	private const INGOT_HEAL_AMOUNT = 25.0; //health
 
 	public const MIN_ANGER_TICKS = 20 * 20;
 	public const MAX_ANGER_TICKS = 40 * 20;
@@ -72,8 +76,6 @@ class IronGolem extends Golem implements NeutralMob{
 	public static function getNetworkTypeId() : string{ return EntityIds::IRON_GOLEM; }
 
 	protected float $stepHeight = 1;
-
-	private int $remainingAngerTicks = 0;
 
 	protected bool $createdByPlayer = false;
 
@@ -90,7 +92,7 @@ class IronGolem extends Golem implements NeutralMob{
 	}
 
 	protected function registerGoals() : void{
-		$this->goalSelector->addGoal(1, new MeleeAttackGoal($this, 1, false));
+		$this->goalSelector->addGoal(1, new MeleeAttackGoal($this, 1));
 		$this->goalSelector->addGoal(2, new MoveTowardsTargetGoal($this, 0.9, 32));
 		$this->goalSelector->addGoal(4, new RandomStrollGoal($this, 0.6, 240));
 		$this->goalSelector->addGoal(5, new OfferFlowerGoal($this));
@@ -159,7 +161,7 @@ class IronGolem extends Golem implements NeutralMob{
 	}
 
 	public function getDrops() : array{
-		return [...parent::getDrops(), ...$this->generateDeathLoot(VanillaLootTables::IRON_GOLEM())];
+		return $this->generateDeathLoot(VanillaLootTables::IRON_GOLEM());
 	}
 
 	public function getPickedItem() : ?Item{
@@ -178,16 +180,15 @@ class IronGolem extends Golem implements NeutralMob{
 		$this->setRemainingAngerTicks(mt_rand(self::MIN_ANGER_TICKS, self::MAX_ANGER_TICKS));
 	}
 
-	public function getRemainingAngerTicks() : int{
-		return $this->remainingAngerTicks;
-	}
+	public function getCrackiness() : Crackiness{
+		$remaining = $this->getHealth() / $this->getMaxHealth();
 
-	public function setRemainingAngerTicks(int $ticks) : void{
-		$this->remainingAngerTicks = $ticks;
-	}
-
-	public function getCrackiness() : IronGolemCrackiness{
-		return IronGolemCrackiness::fromHealthPercentage($this->getHealth() / $this->getMaxHealth());
+		return match(true){
+			$remaining <= 0.25 => Crackiness::HIGH,
+			$remaining <= 0.5 => Crackiness::MEDIUM,
+			$remaining <= 0.75 => Crackiness::LOW,
+			default => Crackiness::NONE
+		};
 	}
 
 	protected function entityBaseTick(int $tickDiff = 1) : bool{
@@ -217,23 +218,19 @@ class IronGolem extends Golem implements NeutralMob{
 	public function setHealth(float $amount) : void{
 		parent::setHealth($amount);
 
-		//We need to sync health for crackiness display
-		NetworkBroadcastUtils::broadcastEntityEvent($this->getViewers(),
-			function(EntityEventBroadcaster $broadcaster, array $recipients) : void{
-				$broadcaster->syncAttributes($recipients, $this, [$this->healthAttr]);
-			}
-		);
+		//Its crackiness shows the health
+		$this->syncHealthToViewers();
+	}
+
+	public function getHealAmount(Item $item) : float{
+		return $item->getTypeId() === ItemTypeIds::IRON_INGOT ? self::INGOT_HEAL_AMOUNT : 0.0;
 	}
 
 	public function onInteract(Player $player, Vector3 $clickPos) : bool{
-		$item = $player->getInventory()->getItemInHand();
-		if ($item->getTypeId() === ItemTypeIds::IRON_INGOT &&
-			($health = $this->getHealth()) < ($maxHealth = $this->getMaxHealth())
-		) {
-			$this->setHealth(min($health + 25, $maxHealth));
-			Utils::popItemInHand($player);
-
+		if ($this->interactHealable($player, $clickPos)) {
 			$this->broadcastSound(new IronGolemRepairSound($this));
+
+			return true;
 		}
 
 		return parent::onInteract($player, $clickPos);

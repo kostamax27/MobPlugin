@@ -28,6 +28,7 @@ use Closure;
 use IvanCraft623\MobPlugin\data\bedrock\VanillaEntitySizes;
 use IvanCraft623\MobPlugin\entity\boss\Wither;
 use IvanCraft623\MobPlugin\entity\monster\Creeper;
+use IvanCraft623\MobPlugin\entity\WearableHeadMob;
 use IvanCraft623\MobPlugin\item\ExtraVanillaItems;
 use IvanCraft623\MobPlugin\loot\VanillaLootTables;
 use IvanCraft623\Pathfinder\BlockPathType;
@@ -47,13 +48,17 @@ use pocketmine\item\ItemBlock;
 use pocketmine\item\ItemTypeIds;
 use pocketmine\network\mcpe\protocol\types\entity\EntityIds;
 
-class WitherSkeleton extends AbstractSkeleton {
+class WitherSkeleton extends AbstractSkeleton implements WearableHeadMob {
 
 	public const WITHER_EFFECT_DURATION = 200; // in ticks
 
 	public static function getNetworkTypeId() : string {
 		return EntityIds::WITHER_SKELETON;
 	}
+
+	public function getMobHeadType() : MobHeadType{ return MobHeadType::WITHER_SKELETON; }
+
+	public function getHeadVisibilityFactor() : float{ return 1.0; }
 
 	public function getName() : string {
 		return "Wither Skeleton";
@@ -89,13 +94,13 @@ class WitherSkeleton extends AbstractSkeleton {
 
 		$this->setScale(1.2); //why? bedrock...
 
-		$this->setPathfindingMalus(BlockPathType::LAVA, 8);
-		$this->setPathfindingMalus(BlockPathType::DANGER_FIRE, BlockPathType::OPEN_MALUS);
-		$this->setPathfindingMalus(BlockPathType::DAMAGE_FIRE, BlockPathType::OPEN_MALUS);
+		$this->navigation->setPathfindingMalus(BlockPathType::LAVA, 8);
+		$this->navigation->setPathfindingMalus(BlockPathType::DANGER_FIRE, BlockPathType::OPEN_MALUS);
+		$this->navigation->setPathfindingMalus(BlockPathType::DAMAGE_FIRE, BlockPathType::OPEN_MALUS);
 	}
 
 	public function getDrops() : array{
-		$drops = [...parent::getDrops(), ...$this->generateDeathLoot(VanillaLootTables::WITHER_SKELETON())];
+		$drops = [...$this->getEquipmentDrops(), ...$this->generateDeathLoot(VanillaLootTables::WITHER_SKELETON())];
 
 		if (($cause = $this->getLastDamageCause()) instanceof EntityDamageByEntityEvent &&
 			($killer = $cause->getDamager()) instanceof Creeper && $killer->isPowered()

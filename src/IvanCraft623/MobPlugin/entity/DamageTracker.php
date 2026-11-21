@@ -25,6 +25,9 @@ namespace IvanCraft623\MobPlugin\entity;
 
 use pocketmine\entity\Entity;
 
+/**
+ * Total damage taken from each entity. Not the HURT_BY memory, which is only the latest hit and expires.
+ */
 interface DamageTracker {
 
 	public function getTotalDamageFrom(Entity $entity) : float;

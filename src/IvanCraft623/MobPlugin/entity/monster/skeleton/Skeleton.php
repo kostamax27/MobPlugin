@@ -25,8 +25,11 @@ namespace IvanCraft623\MobPlugin\entity\monster\skeleton;
 
 use Closure;
 
+use IvanCraft623\MobPlugin\entity\ai\goal\AvoidEntityGoal;
+use IvanCraft623\MobPlugin\entity\animal\Wolf;
 use IvanCraft623\MobPlugin\entity\monster\Creeper;
 
+use IvanCraft623\MobPlugin\entity\WearableHeadMob;
 use IvanCraft623\MobPlugin\item\ExtraVanillaItems;
 use IvanCraft623\MobPlugin\loot\VanillaLootTables;
 use pocketmine\block\BlockTypeIds;
@@ -39,15 +42,25 @@ use pocketmine\item\ItemBlock;
 use pocketmine\item\ItemTypeIds;
 use pocketmine\network\mcpe\protocol\types\entity\EntityIds;
 
-class Skeleton extends AbstractSkeleton {
+class Skeleton extends AbstractSkeleton implements WearableHeadMob {
 
 	public static function getNetworkTypeId() : string {
 		return EntityIds::SKELETON;
 	}
 
+	protected function registerGoals() : void{
+		parent::registerGoals();
+
+		$this->goalSelector->addGoal(4, new AvoidEntityGoal($this, [Wolf::class], 6, 1.2, 1.2));
+	}
+
 	public function getName() : string {
 		return "Skeleton";
 	}
+
+	public function getMobHeadType() : MobHeadType{ return MobHeadType::SKELETON; }
+
+	public function getHeadVisibilityFactor() : float{ return 0.5; }
 
 	public function isSunSensitive() : bool{
 		return true;
@@ -63,7 +76,7 @@ class Skeleton extends AbstractSkeleton {
 	}
 
 	public function getDrops() : array{
-		$drops = [...parent::getDrops(), ...$this->generateDeathLoot(VanillaLootTables::SKELETON())];
+		$drops = [...$this->getEquipmentDrops(), ...$this->generateDeathLoot(VanillaLootTables::SKELETON())];
 
 		if (($cause = $this->getLastDamageCause()) instanceof EntityDamageByEntityEvent &&
 			($killer = $cause->getDamager()) instanceof Creeper && $killer->isPowered()

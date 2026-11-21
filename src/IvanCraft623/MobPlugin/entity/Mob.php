@@ -25,26 +25,23 @@ namespace IvanCraft623\MobPlugin\entity;
 
 use IvanCraft623\MobPlugin\CustomTimings;
 use IvanCraft623\MobPlugin\despawning\DespawnPersistenceTrait;
+use IvanCraft623\MobPlugin\entity\ai\control\IdleMoveControl;
 use IvanCraft623\MobPlugin\entity\ai\control\JumpControl;
 use IvanCraft623\MobPlugin\entity\ai\control\LookControl;
 use IvanCraft623\MobPlugin\entity\ai\control\MoveControl;
+use IvanCraft623\MobPlugin\entity\ai\control\MovementInput;
 use IvanCraft623\MobPlugin\entity\ai\goal\GoalSelector;
-use IvanCraft623\MobPlugin\entity\ai\navigation\locomotion\GroundLocomotion;
-use IvanCraft623\MobPlugin\entity\ai\navigation\PathNavigation;
 use IvanCraft623\MobPlugin\entity\ai\sensing\Sensing;
-use IvanCraft623\MobPlugin\inventory\MobInventory;
-use IvanCraft623\MobPlugin\loot\LootTable;
+use IvanCraft623\MobPlugin\memory\Memories;
+use IvanCraft623\MobPlugin\memory\Occurrence;
 use IvanCraft623\MobPlugin\MobPlugin;
 use IvanCraft623\MobPlugin\Settings;
+use IvanCraft623\MobPlugin\sound\EntitySpawnSound;
 use IvanCraft623\MobPlugin\sound\MobWarningSound;
 use IvanCraft623\MobPlugin\utils\Utils;
-use IvanCraft623\Pathfinder\BlockPathType;
-use IvanCraft623\Pathfinder\BlockPathTypeCostMap;
-use kostamax27\loottable\LootContext;
-use kostamax27\loottable\LootDifficulty;
 
 use pocketmine\block\BlockTypeIds;
-use pocketmine\color\Color;
+use pocketmine\block\Liquid;
 use pocketmine\entity\animation\ArmSwingAnimation;
 use pocketmine\entity\Attribute;
 use pocketmine\entity\AttributeFactory;
@@ -54,51 +51,56 @@ use pocketmine\entity\effect\PoisonEffect;
 use pocketmine\entity\effect\RegenerationEffect;
 use pocketmine\entity\effect\WitherEffect;
 use pocketmine\entity\Entity;
-use pocketmine\entity\object\ItemEntity;
+use pocketmine\entity\EntityFactory;
 use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\event\entity\EntityDamageEvent;
-use pocketmine\event\entity\EntityItemPickupEvent;
 use pocketmine\event\entity\EntityRegainHealthEvent;
-use pocketmine\inventory\ArmorInventory;
-use pocketmine\inventory\Inventory;
-use pocketmine\item\Armor;
-use pocketmine\item\Durable;
-use pocketmine\item\enchantment\EnchantmentInstance;
-use pocketmine\item\enchantment\MeleeWeaponEnchantment;
-use pocketmine\item\enchantment\VanillaEnchantments;
-use pocketmine\item\Item;
-use pocketmine\item\ItemTypeIds;
 use pocketmine\item\Releasable;
 use pocketmine\math\Vector3;
+use pocketmine\math\VoxelRayTrace;
 use pocketmine\nbt\tag\CompoundTag;
+use pocketmine\nbt\tag\ListTag;
 use pocketmine\network\mcpe\EntityEventBroadcaster;
 use pocketmine\network\mcpe\NetworkBroadcastUtils;
 use pocketmine\network\mcpe\protocol\types\entity\EntityMetadataCollection;
 use pocketmine\network\mcpe\protocol\types\entity\EntityMetadataFlags;
 use pocketmine\network\mcpe\protocol\types\entity\EntityMetadataProperties;
 use pocketmine\network\mcpe\protocol\types\LevelSoundEvent;
+use pocketmine\player\Player;
 use pocketmine\utils\AssumptionFailedError;
-use pocketmine\utils\Utils as PMUtils;
-use pocketmine\world\particle\DustParticle;
-use pocketmine\world\sound\ItemBreakSound;
-use function assert;
-use function basename;
+use pocketmine\utils\Random;
+use pocketmine\world\Position;
+use pocketmine\world\World;
+use function cos;
 use function count;
 use function debug_backtrace;
 use function implode;
 use function max;
-use function min;
 use function round;
-use function str_replace;
+use function sin;
+use function sqrt;
 use const DEBUG_BACKTRACE_IGNORE_ARGS;
+use const M_PI;
 
 abstract class Mob extends Living {
+	use LootRollingTrait;
 	use DespawnPersistenceTrait {
 		initEntity as initDespawnPersistence;
+		saveNBT as saveDespawnPersistenceNBT;
 	}
 	//TODO!
 
-	protected PathNavigation $navigation;
+	private const TAG_COMPONENT_GROUPS = "definitions"; //TAG_List
+
+	protected Random $random;
+
+	protected ComponentGroups $componentGroups;
+
+	/** Ticks a mob remembers who hurt it. */
+	public const HURT_BY_MEMORY_TICKS = 60;
+
+	/** Ticks after a hit by a player that a mob still counts as last hit by one. */
+	public const LAST_HIT_BY_PLAYER_TICKS = 400;
 
 	protected LookControl $lookControl;
 
@@ -112,21 +114,7 @@ abstract class Mob extends Living {
 
 	protected Sensing $sensing;
 
-	protected BlockPathTypeCostMap $pathTypeCostMap;
-
-	protected float $forwardSpeed = 0;
-
-	protected float $upwardSpeed = 0;
-
-	protected float $sidewaysSpeed = 0;
-
-	protected float $motionSpeed = 0;
-
-	protected Vector3 $restrictCenter;
-
-	protected float $restrictRadius = -1;
-
-	protected bool $aggressive = false;
+	protected MovementInput $movementInput;
 
 	protected bool $hasAi = true;
 
@@ -134,7 +122,10 @@ abstract class Mob extends Living {
 
 	protected Attribute $attackKnockbackAttr;
 
+	private const DEFAULT_WATER_SPEED = 0.06; //acceleration
+
 	protected Attribute $airSpeedAttr;
+	protected Attribute $waterSpeedAttr;
 
 	protected Attribute $followRangeAttr;
 
@@ -159,18 +150,33 @@ abstract class Mob extends Living {
 	}
 
 	protected function initEntity(CompoundTag $nbt) : void{
+		if (($componentGroupsTag = $nbt->getTag(self::TAG_COMPONENT_GROUPS)) instanceof ListTag) {
+			$this->componentGroups = ComponentGroups::fromListTag($componentGroupsTag);
+		} else {
+			$this->componentGroups = new ComponentGroups();
+			if ($this->canSaveWithChunk()) {
+				$this->componentGroups->add(EntityFactory::getInstance()->getSaveId($this::class));
+			}
+		}
+
 		$this->initProperties();
 
 		$this->initDespawnPersistence($nbt);
+
+		$this->random = MobPlugin::getInstance()->getRandom();
+
+		if ($nbt->count() === 0) { //Entity just created!
+			$this->onCreate();
+		}
 
 		MobPlugin::getInstance()->trackEntity($this);
 
 		$this->goalSelector = new GoalSelector();
 		$this->targetSelector = new GoalSelector();
 		$this->lookControl = new LookControl($this);
-		$this->moveControl = new MoveControl($this);
+		$this->movementInput = new MovementInput();
+		$this->moveControl = $this->createMoveControl();
 		$this->jumpControl = new JumpControl($this);
-		$this->navigation = $this->createNavigation();
 		$this->sensing = new Sensing($this);
 
 		$this->registerGoals();
@@ -190,17 +196,22 @@ abstract class Mob extends Living {
 		$this->attributeMap->add($this->attackDamageAttr = AttributeFactory::getInstance()->mustGet(Attribute::ATTACK_DAMAGE));
 		$this->attributeMap->add($this->attackKnockbackAttr = AttributeFactory::getInstance()->mustGet(CustomAttributes::ATTACK_KNOCKBACK));
 		$this->attributeMap->add($this->airSpeedAttr = AttributeFactory::getInstance()->mustGet(CustomAttributes::AIR_MOVEMENT));
+		$this->attributeMap->add($this->waterSpeedAttr = AttributeFactory::getInstance()->mustGet(Attribute::UNDERWATER_MOVEMENT));
+		$this->waterSpeedAttr->setValue(self::DEFAULT_WATER_SPEED);
 
 		$this->followRangeAttr = $this->attributeMap->get(Attribute::FOLLOW_RANGE) ?? throw new AssumptionFailedError("Follow range attribute is null");
 		;
 	}
 
-	public function createNavigation() : PathNavigation{
-		return new PathNavigation($this, new GroundLocomotion());
-	}
-
 	public function getLookControl() : LookControl {
 		return $this->lookControl;
+	}
+
+	/**
+	 * How this mob moves toward the position its goals want. Idle for mobs that don't.
+	 */
+	protected function createMoveControl() : MoveControl{
+		return new IdleMoveControl($this);
 	}
 
 	public function getMoveControl() : MoveControl {
@@ -211,10 +222,6 @@ abstract class Mob extends Living {
 		return $this->jumpControl;
 	}
 
-	public function getNavigation() : PathNavigation{
-		return $this->navigation;
-	}
-
 	public function getSensing() : Sensing {
 		return $this->sensing;
 	}
@@ -223,39 +230,22 @@ abstract class Mob extends Living {
 		return MobType::UNDEFINED();
 	}
 
-	public function setForwardSpeed(float $forwardSpeed) : void {
-		$this->forwardSpeed = $forwardSpeed;
-	}
-
-	public function setUpwardSpeed(float $upwardSpeed) : void {
-		$this->upwardSpeed = $upwardSpeed;
-	}
-
-	public function setSidewaysSpeed(float $sidewaysSpeed) : void {
-		$this->sidewaysSpeed = $sidewaysSpeed;
-	}
-
-	/**
-	 * The speed MoveControl wants to apply this tick, used to drive forwardSpeed.
-	 * Not to be confused with getMovementSpeed(), which reads the MOVEMENT_SPEED attribute.
-	 */
-	public function getMotionSpeed() : float {
-		return $this->motionSpeed;
-	}
-
-	/**
-	 * Sets the speed MoveControl wants to apply this tick and pushes it as forwardSpeed.
-	 */
-	public function setMotionSpeed(float $motionSpeed) : void {
-		$this->motionSpeed = $motionSpeed;
-		$this->setForwardSpeed($motionSpeed);
+	public function getMovementInput() : MovementInput{
+		return $this->movementInput;
 	}
 
 	/**
 	 * Returns acceleration while in water.
 	 */
 	public function getWaterMovementSpeed() : float{
-		return $this->getMovementSpeed();
+		return $this->waterSpeedAttr->getValue();
+	}
+
+	/**
+	 * Sets acceleration while in water.
+	 */
+	public function setWaterMovementSpeed(float $waterSpeed) : void{
+		$this->waterSpeedAttr->setValue($waterSpeed);
 	}
 
 	/**
@@ -279,18 +269,6 @@ abstract class Mob extends Living {
 	public function setHasAi(bool $value = true) : void{
 		$this->hasAi = $value;
 		$this->networkPropertiesDirty = true;
-	}
-
-	public function getMaxPitchRot() : int {
-		return 40;
-	}
-
-	public function getMaxYawRot() : int {
-		return 75;
-	}
-
-	public function getRotSpeed() : int {
-		return 10;
 	}
 
 	public function getAmbientSoundInterval() : float{
@@ -332,8 +310,91 @@ abstract class Mob extends Living {
 		$this->followRangeAttr->setValue($range);
 	}
 
+	public function getRandom() : Random {
+		return $this->random;
+	}
+
+	public function getDefaultMovementSpeed() : float {
+		return 0.25;
+	}
+
+	public function canAttack(Entity $target) : bool {
+		if (!$target->isAlive()) {
+			return false;
+		}
+
+		if ($this->getWorld()->getDifficulty() === World::DIFFICULTY_PEACEFUL) {
+			return false;
+		}
+
+		if ($target instanceof Player && $target->isCreative()) {
+			return false;
+		}
+
+		return true;
+	}
+
+	public function canSee(Entity $entity) : bool{
+		$start = $this->getEyePos();
+		$end = $entity->getEyePos();
+		if ($start->distanceSquared($end) > 0.01) {
+			foreach(VoxelRayTrace::betweenPoints($start, $end) as $vector3){
+				$block = $this->getWorld()->getBlockAt((int) $vector3->x, (int) $vector3->y, (int) $vector3->z);
+
+				if($block->getTypeId() !== BlockTypeIds::AIR && $block->calculateIntercept($start, $end) !== null){
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
+	public function getFluidJumpThreshold() : float{
+		return $this->getEyeHeight() < 0.4 ? 0 : 0.4;
+	}
+
+	public function canStandOnFluid(Liquid $liquid) : bool{
+		return false;
+	}
+
+	/**
+	 * Whether a player hit the mob recently enough for it to drop experience.
+	 */
+	public function hasBeenDamagedByPlayer() : bool{
+		return Memories::getInstance()->latest($this, Occurrence::HURT_BY_PLAYER, self::LAST_HIT_BY_PLAYER_TICKS) !== null;
+	}
+
+	public function getLightLevelDependentMagicValue() : float{
+		return Utils::getLightLevelDependentMagicValue(Position::fromObject($this->getEyePos(), $this->location->world));
+	}
+
+	public function spawnTo(Player $player) : void{
+		parent::spawnTo($player);
+		$this->playSpawnSound([$player]);
+	}
+
+	/**
+	 * Called when this entity has just been created and is completely clean.
+	 */
+	public function onCreate() : void{
+		$this->generateEquipment();
+	}
+
+	/**
+	 * Called when the entity is created to give it its starting gear.
+	 * Subclasses must equip the items themselves.
+	 */
+	public function generateEquipment() : void{}
+
+	/**
+	 * @param Player[]|null $targets
+	 */
+	public function playSpawnSound(?array $targets = null) : void{
+		$this->broadcastSound(new EntitySpawnSound($this), $targets);
+	}
+
 	public function getMaxFallDistance() : int{
-		$defaultMax = parent::getMaxFallDistance();
+		$defaultMax = 3;
 		if ($this->targetId === null) {
 			return $defaultMax;
 		}
@@ -348,6 +409,18 @@ abstract class Mob extends Living {
 		return $maxFallDistance + $defaultMax;
 	}
 
+	/**
+	 * Sends the health to the viewers, which PocketMine-MP only sends to the mob itself. For the mobs whose look
+	 * depends on it.
+	 */
+	protected function syncHealthToViewers() : void{
+		NetworkBroadcastUtils::broadcastEntityEvent($this->getViewers(),
+			function(EntityEventBroadcaster $broadcaster, array $recipients) : void{
+				$broadcaster->syncAttributes($recipients, $this, [$this->healthAttr]);
+			}
+		);
+	}
+
 	protected function entityBaseTick(int $tickDiff = 1) : bool{
 		if($this->hasAi){
 			CustomTimings::$entityAiTick->startTiming();
@@ -359,22 +432,9 @@ abstract class Mob extends Living {
 
 		if ($this->getSettings()->isDebugModeEnabled() && $this->ticksLived % 10 === 0) {
 			$this->networkPropertiesDirty = true; // the debug info is sent in place of the name tag
-
-			$path = $this->navigation->getPath();
-			if ($path !== null) {
-				$world = $this->getWorld();
-				foreach ($path->getNodes() as $node) {
-					$world->addParticle($node->add(0.5, 0.5, 0.5), new DustParticle(new Color(255, 0, 0))); //red particle
-				}
-			}
 		}
 
 		//TODO: leash check
-
-		/*if ($this->ticksLived % 5 === 0) {
-			$this->updateControlFlags();
-			$hasUpdate = true;
-		}*/
 
 		return $hasUpdate;
 	}
@@ -386,7 +446,7 @@ abstract class Mob extends Living {
 		$data = [];
 		foreach ($this->goalSelector->getRunningGoals() as $wrappedGoal) {
 			$goalInfo = $wrappedGoal->getCurrentDebugInfo();
-			$data[] = basename(str_replace('\\', '/', $wrappedGoal->goal::class)) . ($goalInfo === null ?
+			$data[] = Utils::getNiceClassName($wrappedGoal->goal, true) . ($goalInfo === null ?
 				"" : " (" . $goalInfo . ")"
 			);
 		}
@@ -396,7 +456,10 @@ abstract class Mob extends Living {
 		return $data;
 	}
 
-	public function tickAi() : void{
+	/**
+	 * The AI pipeline, then tickState(). Runs every tick while the mob has AI.
+	 */
+	final protected function tickAi() : void{
 		$this->sensing->tick();
 
 		CustomTimings::$goalSelector->startTiming();
@@ -412,10 +475,6 @@ abstract class Mob extends Living {
 
 		CustomTimings::$goalSelector->stopTiming();
 
-		CustomTimings::$navigation->startTiming();
-		$this->navigation->tick();
-		CustomTimings::$navigation->stopTiming();
-
 		CustomTimings::$entityControls->startTiming();
 		$this->moveControl->tick();
 		$this->lookControl->tick();
@@ -423,17 +482,32 @@ abstract class Mob extends Living {
 		CustomTimings::$entityControls->stopTiming();
 
 		// Movement update
-		$this->sidewaysSpeed *= 0.98;
-		$this->forwardSpeed *= 0.98;
+		$this->movementInput->decay(0.98);
 		//TODO: is being controlled by passenger check!
-		if ($this->sidewaysSpeed !== 0.0 || $this->upwardSpeed !== 0.0 || $this->forwardSpeed !== 0.0 || $this->isCollidedHorizontally) {
+		if (!$this->movementInput->isIdle() || $this->isCollidedHorizontally) {
 			CustomTimings::$entityTravel->startTiming();
-			$this->travel(new Vector3($this->sidewaysSpeed, $this->upwardSpeed, $this->forwardSpeed));
+			$this->travel($this->movementInput->getSideways(), $this->movementInput->getUpward(), $this->movementInput->getForward());
 			CustomTimings::$entityTravel->stopTiming();
 		}
+
+		$this->tickState();
 	}
 
-	public function travel(Vector3 $movementInput) : void{
+	/**
+	 * The mob's own timers and reactions to its surroundings (aging, love, sun burning...), run after the AI
+	 * pipeline. Call the parent first.
+	 */
+	protected function tickState() : void{
+	}
+
+	/**
+	 * Moves the mob by a fixed step with collisions, apart from its motion: no acceleration and no drag.
+	 */
+	public function displace(float $dx, float $dy, float $dz) : void{
+		$this->move($dx, $dy, $dz);
+	}
+
+	public function travel(float $sideways, float $upward, float $forward) : void{
 		// TODO: More complex movement suff :P
 
 		if ($this->isInWater()) {
@@ -443,78 +517,29 @@ abstract class Mob extends Living {
 				$this->getMovementSpeed() : $this->getAirMovementSpeed();
 		}
 
-		$motion = Utils::movementInputToMotion($movementInput, $this->location->yaw, $accel);
+		$motionX = $motionY = $motionZ = 0.0;
+		$lengthSquared = ($sideways ** 2) + ($upward ** 2) + ($forward ** 2);
+		if ($lengthSquared >= 1.0E-7) {
+			$scale = $lengthSquared > 1 ? $accel / sqrt($lengthSquared) : $accel;
+			$sideways *= $scale;
+			$forward *= $scale;
+			$sin = sin($this->location->yaw * (M_PI / 180));
+			$cos = cos($this->location->yaw * (M_PI / 180));
+			$motionX = $sideways * $cos - $forward * $sin;
+			$motionY = $upward * $scale;
+			$motionZ = $forward * $cos + $sideways * $sin;
+		}
 
 		//Climb stuff
 		if ($this->isCollidedHorizontally && $this->onClimbable()) {
-			$motion->y = 0.2 - $this->motion->y;
+			$motionY = 0.2 - $this->motion->y;
 		}
 
-		$this->addMotion($motion->x, $motion->y, $motion->z);
-	}
-
-	protected function updateControlFlags() : void{
-		// TODO!
-	}
-
-	public function getPathTypeCostMap() : BlockPathTypeCostMap{
-		if (!isset($this->pathTypeCostMap)) {
-			$this->pathTypeCostMap = new BlockPathTypeCostMap();
-		}
-		return $this->pathTypeCostMap;
-	}
-
-	public function getPathfindingMalus(BlockPathType $pathType) : float{
-		// TODO: vehicle checks
-		return $this->getPathTypeCostMap()->getPathfindingMalus($pathType);
-	}
-
-	public function setPathfindingMalus(BlockPathType $pathType, float $malus) : void{
-		$this->getPathTypeCostMap()->setPathfindingMalus($pathType, $malus);
+		$this->addMotion($motionX, $motionY, $motionZ);
 	}
 
 	public function canUseReleasable(Releasable $item) : bool{
 		return false;
-	}
-
-	public function isWithinRestriction(?Vector3 $pos = null) : bool{
-		$pos = $pos ?? $this->location;
-		if ($this->restrictRadius === -1.0) {
-			return true;
-		}
-		return $this->restrictCenter->distanceSquared($pos) < ($this->restrictRadius ** 2);
-	}
-
-	public function restrictTo(Vector3 $center, float $radius) : void{
-		$this->restrictCenter = $center;
-		$this->restrictRadius = $radius;
-	}
-
-	public function getRestrictCenter() : Vector3{
-		if (!isset($this->restrictCenter)) {
-			$this->restrictCenter = Vector3::zero();
-		}
-		return $this->restrictCenter;
-	}
-
-	public function getRestrictRadius() : float{
-		return $this->restrictRadius;
-	}
-
-	public function clearRestriction() : void{
-		$this->restrictRadius = -1;
-	}
-
-	public function hasRestriction() : bool{
-		return $this->restrictRadius !== -1.0;
-	}
-
-	public function isAggressive() : bool{
-		return $this->aggressive;
-	}
-
-	public function setAggressive(bool $aggressive = true) : void{
-		$this->aggressive = $aggressive;
 	}
 
 	public function getPerceivedDistanceSqrForMeleeAttack(Entity $target) : float{
@@ -533,7 +558,7 @@ abstract class Mob extends Living {
 			return false;
 		}
 
-		return parent::canAddEffect($effect);
+		return true;
 	}
 
 	/**
@@ -616,7 +641,7 @@ abstract class Mob extends Living {
 	}
 
 	/**
-	 * Attacks the given entity with the currently-held item.
+	 * Attacks the given entity.
 	 * TODO: make a PR that implements this un PM core.
 	 *
 	 * @return bool if the entity was dealt damage
@@ -626,27 +651,8 @@ abstract class Mob extends Living {
 			return false;
 		}
 
-		$heldItem = $this->inventory->getItemInHand();
-		$oldItem = clone $heldItem;
-
-		$itemAttackPoints = $heldItem->getAttackPoints();
-		$attackPoints = $this->getAttackDamage();
-		$baseDamage = $itemAttackPoints <= 1 ? $attackPoints : $attackPoints + $itemAttackPoints;
-
-		$ev = new EntityDamageByEntityEvent($this, $entity, EntityDamageEvent::CAUSE_ENTITY_ATTACK, $baseDamage);
+		$ev = new EntityDamageByEntityEvent($this, $entity, EntityDamageEvent::CAUSE_ENTITY_ATTACK, $this->getAttackDamage());
 		$ev->setKnockBack($this->getAttackKnockback());
-
-		$meleeEnchantmentDamage = 0;
-		/** @var EnchantmentInstance[] $meleeEnchantments */
-		$meleeEnchantments = [];
-		foreach($heldItem->getEnchantments() as $enchantment){
-			$type = $enchantment->getType();
-			if($type instanceof MeleeWeaponEnchantment && $type->isApplicableTo($entity)){
-				$meleeEnchantmentDamage += $type->getDamageBonus($enchantment->getLevel());
-				$meleeEnchantments[] = $enchantment;
-			}
-		}
-		$ev->setModifier($meleeEnchantmentDamage, EntityDamageEvent::MODIFIER_WEAPON_ENCHANTMENTS);
 
 		$entity->attack($ev);
 
@@ -654,25 +660,6 @@ abstract class Mob extends Living {
 
 		if ($this->isOnFire()) {
 			$entity->setOnFire(8);
-		}
-
-		foreach($meleeEnchantments as $enchantment){
-			$type = $enchantment->getType();
-			assert($type instanceof MeleeWeaponEnchantment);
-			$type->onPostAttack($this, $entity, $enchantment->getLevel());
-		}
-
-		if($this->isAlive()){
-			//reactive damage like thorns might cause us to be killed by attacking another mob, which
-			//would mean we'd already have dropped the inventory by the time we reached here
-
-			$returnedItems = []; //TODO: do something with returned items
-			if($heldItem->onAttackEntity($entity, $returnedItems) && $oldItem->equalsExact($this->inventory->getItemInHand())){
-				if($heldItem instanceof Durable && $heldItem->isBroken()){
-					$this->broadcastSound(new ItemBreakSound());
-				}
-				$this->inventory->setItemInHand($heldItem);
-			}
 		}
 
 		return true;
@@ -704,208 +691,11 @@ abstract class Mob extends Living {
 		parent::setTargetEntity($target);
 	}
 
-	public function teleport(Vector3 $pos, ?float $yaw = null, ?float $pitch = null) : bool{
-		if (parent::teleport($pos, $yaw, $pitch)) {
-			$this->navigation->stop();
-
-			return true;
-		}
-
-		return false;
-	}
-
-	public function getEquipmentDropProbability() : float{
-		return 0.25;
-	}
-
-	/**
-	 * @return Item[]
-	 */
-	public function getEquipmentDrops() : array{
-		$drops = [];
-
-		$dropChance = $this->getEquipmentDropProbability();
-		foreach ([$this->inventory, $this->armorInventory] as $inventory) {
-			foreach ($inventory->getContents() as $item) {
-				if (!$item->hasEnchantment(VanillaEnchantments::VANISHING()) && PMUtils::getRandomFloat() <= $dropChance) {
-					if ($item instanceof Durable) {
-						$maxDurability = $item->getMaxDurability();
-						$item->setDamage($maxDurability - $this->random->nextBoundedInt(1 + $this->random->nextBoundedInt(max($maxDurability - 3, 1))));
-					}
-					$drops[] = $item;
-				}
-			}
-		}
-
-		return $drops;
-	}
-
-	/**
-	 * Rolls a table for this mob's death, credited to whoever killed it.
-	 *
-	 * @return Item[]
-	 */
-	protected function generateDeathLoot(LootTable $table) : array{
-		$cause = $this->getLastDamageCause();
-
-		return $this->generateLoot($table, $cause instanceof EntityDamageByEntityEvent ? $cause->getDamager() : null);
-	}
-
-	/**
-	 * Rolls a table for a drop that $source caused with $tool (its held item if null).
-	 *
-	 * @return Item[]
-	 */
-	protected function generateLoot(LootTable $table, ?Entity $source = null, ?Item $tool = null) : array{
-		return $table->generate(new LootContext(
-			random: $this->random,
-			entity: $this,
-			killer: $source,
-			tool: $tool ?? Utils::getHeldItem($source),
-			difficulty: LootDifficulty::fromWorld($this->getWorld())
-		));
-	}
-
-	/**
-	 * Rolls a table of gear for this mob and puts each item in its slot.
-	 */
-	protected function equipFromLootTable(LootTable $table) : void{
-		foreach ($this->generateLoot($table) as $item) {
-			$slot = 0;
-			$this->getEquipInventoryAndSlot($item, $slot)->setItem($slot, $item);
-		}
-	}
-
-	/**
-	 * Drops what a table rolls for a drop that $source caused with $tool, above this mob's head.
-	 */
-	protected function dropLoot(LootTable $table, ?Entity $source, ?Item $tool) : void{
-		$position = $this->location->add(0, $this->getSize()->getHeight(), 0);
-		foreach ($this->generateLoot($table, $source, $tool) as $item) {
-			$this->getWorld()->dropItem($position, $item);
-		}
-	}
-
-	public function getDrops() : array {
-		return $this->getEquipmentDrops();
-	}
-
 	public function onEat() : void{
 	}
 
 	public function onLightningBoltHit() : bool{
 		return false;
-	}
-
-	public function pickupItem(ItemEntity $entity, int $count) : void {
-		$item = $entity->getItem();
-		if ($count > $item->getCount()) {
-			throw new \InvalidArgumentException("Pickup take count cannot be larger than item count");
-		}
-
-		$equipSlot = 0;
-		$equipInventory = $this->getEquipInventoryAndSlot($item, $equipSlot);
-
-		$equippedItem = $equipInventory->getItem($equipSlot);
-		$originalCount = $item->getCount();
-
-		// How many units fit in the target slot
-		// in vanilla bedrock they actually don't care, mobs will equip one stack of
-		// carved pumpkins even if armor inventory stack size is 1.
-		$canStack = !$equippedItem->isNull() && $equippedItem->canStackWith($item);
-		$maxStackSize = min($equipInventory->getMaxStackSize(), $item->getMaxStackSize());
-		$canAdd = max(0, $maxStackSize - ($canStack ? $equippedItem->getCount() : 0));
-		$pickupCount = min($count, $canAdd);
-
-		if ($pickupCount <= 0) {
-			return;
-		}
-		$item->setCount($pickupCount);
-
-		$ev = new EntityItemPickupEvent($this, $entity, $item, $equipInventory);
-		$ev->call();
-		if ($ev->isCancelled()) {
-			return;
-		}
-
-		$evItem = $ev->getItem();
-
-		if ($evItem->getCount() <= 0) {
-			$entity->flagForDespawn();
-			return;
-		}
-
-		$equipInventory = $ev->getInventory();
-		if ($equipInventory === null || !$equipInventory->slotExists($equipSlot)) {
-			$entity->flagForDespawn();
-			return;
-		}
-
-		// Re-read slot since inventory may have changed, re-evaluate stackability once
-		$equippedItem = $equipInventory->getItem($equipSlot);
-		$canStack = !$equippedItem->isNull() && $equippedItem->canStackWith($evItem);
-
-		if (!$canStack && !$equippedItem->isNull()) {
-			$this->getWorld()->dropItem($this->location, $equippedItem);
-			$equipInventory->clear($equipSlot);
-		}
-
-		// Reclamp count in case plugins increased it beyond what fits
-		$currentCount = $canStack ? $equippedItem->getCount() : 0;
-		$canAddAfterEv = max(0, min($equipInventory->getMaxStackSize(), $evItem->getMaxStackSize()) - $currentCount);
-		$finalCount = min($evItem->getCount(), $canAddAfterEv);
-
-		if ($finalCount <= 0) {
-			return;
-		}
-		$evItem->setCount($finalCount);
-
-		// Visual and sound effects
-		NetworkBroadcastUtils::broadcastEntityEvent($this->getViewers(),
-			fn(EntityEventBroadcaster $broadcaster, array $recipients) =>
-				$broadcaster->onPickUpItem($recipients, $this, $entity)
-		);
-		if ($equipInventory instanceof ArmorInventory &&
-			$evItem instanceof Armor &&
-			($equipSound = $evItem->getMaterial()->getEquipSound()) !== null
-		) {
-			$this->broadcastSound($equipSound);
-		}
-
-		$slotItem = $equipInventory->getItem($equipSlot);
-		if ($slotItem->isNull()) {
-			$equipInventory->setItem($equipSlot, $evItem);
-		} else {
-			$slotItem->setCount($slotItem->getCount() + $evItem->getCount());
-			$equipInventory->setItem($equipSlot, $slotItem);
-		}
-
-		$remaining = $originalCount - $finalCount;
-		if ($remaining > 0) {
-			$entity->getWorld()->dropItem($entity->getLocation(), (clone $item)->setCount($remaining), Vector3::zero(), 0);
-		}
-		$entity->flagForDespawn();
-	}
-
-	public function getEquipInventoryAndSlot(Item $item, int &$slot) : Inventory{
-		if ($item instanceof Armor) {
-			$slot = $item->getArmorSlot();
-			return $this->getArmorInventory();
-		}
-
-		$typeId = $item->getTypeId();
-		if ($typeId === ItemTypeIds::fromBlockTypeId(BlockTypeIds::CARVED_PUMPKIN) ||
-			$typeId === ItemTypeIds::fromBlockTypeId(BlockTypeIds::MOB_HEAD)
-		) {
-			$slot = ArmorInventory::SLOT_HEAD;
-			return $this->getArmorInventory();
-		}
-
-		//TODO: other items like elytra may be equiped on an armor slot
-		//TODO: it could be items equiped on offhand
-
-		$slot = MobInventory::SLOT_MAIN_HAND;
-		return $this->getInventory();
 	}
 
 	protected function syncNetworkData(EntityMetadataCollection $properties) : void{
@@ -931,8 +721,15 @@ abstract class Mob extends Living {
 		parent::onDispose();
 	}
 
+	public function saveNBT() : CompoundTag{
+		$nbt = $this->saveDespawnPersistenceNBT();
+
+		$nbt->setTag(self::TAG_COMPONENT_GROUPS, $this->componentGroups->toListTag());
+
+		return $nbt;
+	}
+
 	protected function destroyCycles() : void{
-		$this->navigation->stop();
 		$this->goalSelector->stopRunningGoals();
 		$this->targetSelector->stopRunningGoals();
 		unset(
@@ -941,7 +738,6 @@ abstract class Mob extends Living {
 			$this->lookControl,
 			$this->moveControl,
 			$this->jumpControl,
-			$this->navigation,
 			$this->sensing
 		);
 

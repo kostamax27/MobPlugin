@@ -57,8 +57,8 @@ abstract class Animal extends AgeableMob implements Feedable, Lureable{
 	protected function initProperties() : void{
 		parent::initProperties();
 
-		$this->setPathfindingMalus(BlockPathType::DANGER_FIRE, 16);
-		$this->setPathfindingMalus(BlockPathType::DAMAGE_FIRE, -1);
+		$this->navigation->setPathfindingMalus(BlockPathType::DANGER_FIRE, 16);
+		$this->navigation->setPathfindingMalus(BlockPathType::DAMAGE_FIRE, -1);
 	}
 
 	protected function initEntity(CompoundTag $nbt) : void{
@@ -80,8 +80,8 @@ abstract class Animal extends AgeableMob implements Feedable, Lureable{
 		$properties->setGenericFlag(EntityMetadataFlags::INLOVE, $this->inLoveTicks > 0);
 	}
 
-	public function tickAi() : void{
-		parent::tickAi();
+	protected function tickState() : void{
+		parent::tickState();
 
 		if ($this->getAge() !== AgeableMob::ADULT_AGE) {
 			$this->setInLoveTicks(0);
@@ -196,10 +196,13 @@ abstract class Animal extends AgeableMob implements Feedable, Lureable{
 		(new MobSpawnEvent($offspring, MobSpawnCause::BREEDING))->call();
 		$offspring->spawnToAll();
 
-		$this->finalizeSpawnChildFromBreeding($partner, $offspring);
+		$this->finishBreeding($partner);
 	}
 
-	public function finalizeSpawnChildFromBreeding(Animal $partner, AgeableMob $offspring) : void{
+	/**
+	 * Puts both parents on their breeding cooldown and rewards the breeding with experience.
+	 */
+	protected function finishBreeding(Animal $partner) : void{
 		foreach ([$this, $partner] as $parent) {
 			$parent->setAge(self::PARENT_AGE_AFTER_BREEDING);
 			$parent->setInLoveTicks(0);

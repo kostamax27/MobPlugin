@@ -12,7 +12,7 @@
 
 ## 📃 Description
 
-MobPlugin is a plugin for [PocketMine-MP](https://github.com/pmmp/PocketMine-MP) that implements mob AI aiming to replicate vanilla Minecraft: Bedrock Edition behavior as closely as possible.
+MobPlugin is a plugin for [PocketMine-MP](https://github.com/axolotl-pm/PocketMine-MP) that implements mob AI aiming to replicate vanilla Minecraft: Bedrock Edition behavior as closely as possible.
 
 For a full breakdown of what's implemented and what's planned, see the [Vanilla Minecraft Feature Tracking](https://github.com/IvanCraft623/MobPlugin/issues/36) issue.
 
@@ -23,7 +23,7 @@ For a full breakdown of what's implemented and what's planned, see the [Vanilla 
 ## ⚙️ How It Works
 
 ### Async Pathfinding
-Pathfinding is computed off the main thread using [Pathfinder](https://github.com/IvanCraft623/Pahtfinder), a custom virion that ports Java Edition's pathfinding logic to PHP. This ensures that even complex mob navigation doesn't cause server lag spikes.
+Pathfinding is computed off the main thread using [Pathfinder](https://github.com/IvanCraft623/Pahtfinder), a custom virion that does the pathfinding in PHP. This ensures that even complex mob navigation doesn't cause server lag spikes.
 
 ### Goal-based Finite State Machine (FSM)
 Each mob has a set of **goals** with priorities — things like attacking, fleeing, wandering, or looking at players. Every tick, the mob evaluates which goals are applicable and runs the highest-priority one, switching seamlessly when conditions change. This mirrors how vanilla Minecraft handles mob AI, producing natural and predictable behavior.
@@ -49,7 +49,8 @@ Mobs spawn from the vanilla Bedrock [spawn rules](https://github.com/Mojang/bedr
 
 <div align="center">
 
-[![Download Nightly](https://img.shields.io/badge/dynamic/yaml?url=https://raw.githubusercontent.com/IvanCraft623/MobPlugin/main/plugin.yml&query=$.version&label=Download&suffix=%2Bdev&color=blueviolet&style=for-the-badge&logo=github&logoColor=white)](https://github.com/IvanCraft623/MobPlugin/releases/download/nightly/MobPlugin.phar)
+[![Download Axolotl-PM](https://img.shields.io/badge/dynamic/yaml?url=https://raw.githubusercontent.com/IvanCraft623/MobPlugin/main/plugin.yml&query=$.version&label=Axolotl-PM&suffix=%2Bdev&color=blueviolet&style=for-the-badge&logo=github&logoColor=white)](https://github.com/IvanCraft623/MobPlugin/releases/download/nightly/MobPlugin.phar)
+[![Download NetherGames](https://img.shields.io/badge/dynamic/yaml?url=https://raw.githubusercontent.com/IvanCraft623/MobPlugin/ng/plugin.yml&query=$.version&label=NetherGames&suffix=%2Bdev&color=orange&style=for-the-badge&logo=github&logoColor=white)](https://github.com/IvanCraft623/MobPlugin/releases/download/nightly-ng/MobPlugin-NG.phar)
 
 *Always up to date · Built from the latest commit*
 

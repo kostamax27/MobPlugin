@@ -24,37 +24,52 @@ declare(strict_types=1);
 namespace IvanCraft623\MobPlugin\utils;
 
 use DateTime;
-use IvanCraft623\MobPlugin\entity\Mob;
+use IvanCraft623\MobPlugin\entity\ItemCarrier;
 
+use pocketmine\block\Block;
+use pocketmine\block\BlockTypeIds;
+use pocketmine\block\utils\DyeColor;
+use pocketmine\crafting\ExactRecipeIngredient;
+use pocketmine\crafting\ShapelessRecipeType;
+use pocketmine\data\bedrock\DyeColorIdMap;
 use pocketmine\entity\Entity;
 use pocketmine\entity\Human;
 use pocketmine\item\Bow;
 use pocketmine\item\Durable;
+use pocketmine\item\Dye;
 use pocketmine\item\Item;
 use pocketmine\item\Releasable;
 use pocketmine\item\VanillaItems;
 use pocketmine\math\Vector3;
 use pocketmine\player\Player;
+use pocketmine\Server;
 use pocketmine\utils\Random;
+use pocketmine\world\format\Chunk;
 use pocketmine\world\particle\BlockBreakParticle;
 use pocketmine\world\Position;
 use pocketmine\world\World;
 use function abs;
 use function array_key_last;
 use function array_sum;
-use function cos;
+use function ceil;
+use function count;
 use function floor;
 use function fmod;
 use function intdiv;
+use function log;
 use function max;
 use function method_exists;
 use function min;
-use function sin;
+use function pathinfo;
+use function sqrt;
+use function str_contains;
 use function str_replace;
+use function strrpos;
 use function strtolower;
+use function substr;
 use function trim;
 use function ucwords;
-use const M_PI;
+use const PATHINFO_FILENAME;
 
 class Utils {
 
@@ -63,6 +78,11 @@ class Utils {
 
 	private const REGIONAL_DIFFICULTY_NORMAL_BASE = 0.375; //on normal difficulty, with a new moon
 	private const REGIONAL_DIFFICULTY_MOON_FACTOR = 0.25; //multiplies the brightness of the moon
+
+	private static ?int $dyeColorBits = null; //bits a dye color id needs, set on first use
+
+	/** @var array<int, DyeColor>|null dye pair key => the color the two dyes make, built on first use */
+	private static ?array $dyeMixes = null;
 
 	/**
 	 * Picks a key with a probability proportional to its weight, or null when no weight is
@@ -88,6 +108,49 @@ class Utils {
 		return array_key_last($weights);
 	}
 
+	/**
+	 * The color that two dyes of these colors make when crafted together, in either order, or null if they make none.
+	 */
+	public static function mixDyeColors(DyeColor $first, DyeColor $second) : ?DyeColor{
+		self::$dyeMixes ??= self::loadDyeMixes();
+
+		return self::$dyeMixes[self::getDyePairKey($first, $second)] ?? null;
+	}
+
+	/**
+	 * @return array<int, DyeColor>
+	 */
+	private static function loadDyeMixes() : array{
+		$mixes = [];
+		foreach (Server::getInstance()->getCraftingManager()->getShapelessRecipes() as $recipes) {
+			foreach ($recipes as $recipe) {
+				$ingredients = $recipe->getIngredientList();
+				$results = $recipe->getResults();
+				if ($recipe->getType() !== ShapelessRecipeType::CRAFTING || count($ingredients) !== 2 || count($results) !== 1 || !$results[0] instanceof Dye) {
+					continue;
+				}
+
+				$first = $ingredients[0] instanceof ExactRecipeIngredient ? $ingredients[0]->getItem() : null;
+				$second = $ingredients[1] instanceof ExactRecipeIngredient ? $ingredients[1]->getItem() : null;
+				if ($first instanceof Dye && $second instanceof Dye) {
+					$mixes[self::getDyePairKey($first->getColor(), $second->getColor())] ??= $results[0]->getColor();
+				}
+			}
+		}
+
+		return $mixes;
+	}
+
+	private static function getDyePairKey(DyeColor $first, DyeColor $second) : int{
+		$ids = DyeColorIdMap::getInstance();
+		$firstId = $ids->toId($first);
+		$secondId = $ids->toId($second);
+
+		self::$dyeColorBits ??= (int) ceil(log(count(DyeColor::cases()), 2));
+
+		return (min($firstId, $secondId) << self::$dyeColorBits) | max($firstId, $secondId);
+	}
+
 	public static function clamp(float $value, float $minValue, float $maxValue) : float {
 		return max($minValue, min($maxValue, $value));
 	}
@@ -101,6 +164,17 @@ class Utils {
 			$result += 360;
 		}
 		return $result;
+	}
+
+	/**
+	 * @return float the angle in [0, 360), like PocketMine's yaw
+	 */
+	public static function normalizeDegrees(float $degrees) : float {
+		$result = fmod($degrees, 360);
+		if ($result < 0) {
+			$result += 360;
+		}
+		return $result >= 360 ? 0.0 : $result;
 	}
 
 	public static function degreesDifference(float $degrees1, float $degrees2) : float {
@@ -139,22 +213,6 @@ class Utils {
 		return false;
 	}
 
-	public static function movementInputToMotion(Vector3 $movementInput, float $yaw, float $speed) : Vector3{
-		$length = $movementInput->lengthSquared();
-		if ($length < 1.0E-7) {
-			return Vector3::zero();
-		}
-
-		$vec3 = (($length > 1) ? $movementInput->normalize() : $movementInput)->multiply($speed);
-		$f = sin($yaw * (M_PI / 180));
-		$g = cos($yaw * (M_PI / 180));
-		return new Vector3(
-			$vec3->x * $g - $vec3->z * $f,
-			$vec3->y,
-			$vec3->z * $g + $vec3->x * $f
-		);
-	}
-
 	/**
 	 * Returns how bright the moon is at the given world time, from the new moon to the full moon.
 	 *
@@ -182,7 +240,7 @@ class Utils {
 	 * The item in the main hand of a player or a mob, or null for anything else.
 	 */
 	public static function getHeldItem(?Entity $entity) : ?Item{
-		return $entity instanceof Human || $entity instanceof Mob ? $entity->getInventory()->getItemInHand() : null;
+		return $entity instanceof Human || $entity instanceof ItemCarrier ? $entity->getInventory()->getItemInHand() : null;
 	}
 
 	public static function popItemInHand(Player $player, int $amount = 1) : void{
@@ -257,6 +315,49 @@ class Utils {
 		return (float) self::lerp($ambientLight, $lightPercentage / (4 - 3 * $lightPercentage), 1);
 	}
 
+	/**
+	 * Whether the block is water, read from its chunk's state without building the block.
+	 */
+	public static function isWaterAt(World $world, int $x, int $y, int $z) : bool{
+		if (!$world->isInWorld($x, $y, $z)) {
+			return false;
+		}
+		$chunk = $world->getChunk($x >> Chunk::COORD_BIT_SIZE, $z >> Chunk::COORD_BIT_SIZE);
+
+		return $chunk !== null &&
+			($chunk->getBlockStateId($x & Chunk::COORD_MASK, $y, $z & Chunk::COORD_MASK) >> Block::INTERNAL_STATE_DATA_BITS) === BlockTypeIds::WATER;
+	}
+
+	/**
+	 * Whether the block is a snow layer, or stands on a snow block.
+	 */
+	public static function isSnowCovered(World $world, int $x, int $y, int $z) : bool{
+		return $world->getBlockAt($x, $y, $z)->getTypeId() === BlockTypeIds::SNOW_LAYER ||
+			$world->getBlockAt($x, $y - 1, $z)->getTypeId() === BlockTypeIds::SNOW;
+	}
+
+	public static function isDaytime(World $world) : bool{
+		$time = $world->getTimeOfDay();
+
+		return $time < World::TIME_NIGHT || $time >= World::TIME_SUNRISE;
+	}
+
+	/**
+	 * The velocity that lobs a projectile from the origin to the target, with random divergence.
+	 */
+	public static function aimProjectile(Random $random, Vector3 $origin, Vector3 $target, float $power, float $divergence) : Vector3{
+		$dx = $target->x - $origin->x;
+		$dz = $target->z - $origin->z;
+		//The arc: aim higher the farther the target is
+		$vec = (new Vector3($dx, $target->y - $origin->y + sqrt(($dx * $dx) + ($dz * $dz)) * 0.2, $dz))->normalize();
+
+		return (new Vector3(
+			$vec->x + ($random->nextFloat() - $random->nextFloat()) * 0.0075 * $divergence,
+			$vec->y + ($random->nextFloat() - $random->nextFloat()) * 0.0075 * $divergence,
+			$vec->z + ($random->nextFloat() - $random->nextFloat()) * 0.0075 * $divergence
+		))->normalize()->multiply($power);
+	}
+
 	public static function isSkyVisible(World $world, Vector3 $pos) : bool{
 		return $world->getPotentialBlockSkyLightAt((int) floor($pos->x), (int) floor($pos->y), (int) floor($pos->z)) === 15;
 	}
@@ -275,5 +376,40 @@ class Utils {
 
 	public static function isHalloween(?DateTime $date = null) : bool{
 		return ($date ?? new DateTime())->format('m-d') === '10-31';
+	}
+
+	/**
+	 * Returns a readable identifier for the class of the given object. Sanitizes class names for anonymous classes.
+	 */
+	public static function getNiceClassName(object $obj, bool $shortName = false) : string{
+		$class = $obj::class;
+		if(!str_contains($class, "@anonymous")){
+			return $shortName ? self::stripNamespace($class) : $class;
+		}
+
+		$reflect = new \ReflectionClass($obj);
+		$filename = $reflect->getFileName();
+		$location = $filename !== false
+			? pathinfo($filename, PATHINFO_FILENAME) . "#L" . $reflect->getStartLine()
+			: "internal";
+
+		$parent = $reflect->getParentClass();
+		if($parent !== false){
+			$type = $shortName ? $parent->getShortName() : $parent->getName();
+		}else{
+			$interfaces = $reflect->getInterfaceNames();
+			if(count($interfaces) > 0){
+				$type = $shortName ? self::stripNamespace($interfaces[0]) : $interfaces[0];
+			}else{
+				$type = "class";
+			}
+		}
+
+		return $type . "@anonymous:" . $location;
+	}
+
+	private static function stripNamespace(string $class) : string{
+		$pos = strrpos($class, '\\');
+		return $pos !== false ? substr($class, $pos + 1) : $class;
 	}
 }

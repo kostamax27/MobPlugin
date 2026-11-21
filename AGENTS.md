@@ -4,9 +4,9 @@ Guidance for AI coding agents (and humans) working on **MobPlugin**.
 
 ## What this project is
 
-A [PocketMine-MP](https://github.com/pmmp/PocketMine-MP) API 5 plugin (PHP) that
-implements vanilla mob AI for Minecraft: **Bedrock Edition**. It mirrors the architecture
-of Java Edition's mob AI (goals, senses, memories, navigation).
+A [PocketMine-MP](https://github.com/axolotl-pm/PocketMine-MP) API 5 plugin (PHP) that
+implements vanilla mob behavior for Minecraft: **Bedrock Edition**, on its own AI framework
+(goals, sensing, navigation, movement controls).
 
 ## Layout
 
@@ -18,14 +18,16 @@ Plugin code is under `src/IvanCraft623/MobPlugin/` (PSR-0):
 - `entity/` — the mob hierarchy (`Mob` → `Living`, `Animal`, `Monster`, `Golem`…), with
   concrete mobs under `entity/{type}/`.
   - `entity/ai/` — the AI framework: `goal/` (the goal FSM, with mob-specific goals in
-    subfolders), `Brain.php`, `memory/`, `behavior/`, `sensing/`, `control/`,
-    `navigation/`, `targeting/`, `utils/`. See `docs/navigation.md`.
+    subfolders), `sensing/`, `control/`, `navigation/`, `targeting/`, `utils/`. See
+    `docs/navigation.md`.
 - `data/bedrock/` — Bedrock id maps. `EntityIds` and `VanillaEntitySizes` are generated;
   entity classes keep PocketMine-MP's `EntityIds` for `getNetworkTypeId()`.
 - `spawning/` — natural spawning from the vanilla spawn rules. `parse/schema/` is
   generated. See `docs/spawning.md`, and `docs/spawning-api.md` for the public API.
 - `despawning/` — natural despawning, for any entity with a registered `DespawnRule`. See
   `docs/despawning.md`.
+- `memory/` — what entities remember about each other, `Memories`, fed by events.
+- `bed/` — which pet sleeps on each bed with its owner, `BedListener`, fed by events.
 - `loot/` — mob drops: the vanilla loot tables, rolled by the `kostamax27/loottable`
   library. See the Drops section of `docs/new-mobs.md`.
 - `utils/`, `sound/`, `particle/`, `pattern/`, `item/`, `inventory/`, `CustomTimings.php`
@@ -35,17 +37,19 @@ Outside `src/`:
 
 - `resources/` — `global-settings.yml` and the generated `bedrock/` data
   (`spawning/spawn_rules.json`, `loot_tables.json`, `NOTICE.md`).
+- `docs/` — how to implement a mob ([new-mobs.md](docs/new-mobs.md)), plus navigation, spawning
+  and despawning.
 - `tools/` — dev tools that generate the spawn data, `parse/schema/` and the entity data, and
   merge the loot tables, from the pinned `mojang/bedrock-samples` dev dependency, and
   generate registry classes with PocketMine-MP's registry generator (`tools/registry/`).
 - `tests/phpunit/` — the PHPUnit suite.
-- `.github/workflows/` — `ci.yml` (PHPStan, PHPUnit, generated data drift), `build.yml`
+- `.github/workflows/` — `ci.yml` (code style, PHPStan, PHPUnit, generated data drift), `build.yml`
   (nightly phar) and `release.yml` (tagged releases).
 
 ## Tooling
 
 - `composer install` — dependencies. Don't edit `vendor/` or `composer.lock` by hand.
-- `php-cs-fixer fix` — code style, including the license header. Run it after editing.
+- `php-cs-fixer fix` — code style, including the license header. Run it after editing, with the version CI pins (`ci.yml`).
 - `vendor/bin/phpstan.phar analyze --no-progress` — PHPStan level 9.
 - `composer test` — PHPUnit.
 - `composer build` — builds `MobPlugin.phar`.
@@ -56,20 +60,39 @@ Outside `src/`:
 Pathfinding is the external virion `ivancraft623/pathfinder`; keep usage aligned with its
 API.
 
+## Branches
+
+- `main` targets Axolotl-PM.
+- `ng` is `main` plus the changes NetherGames' PocketMine-MP needs (its multi-protocol `TypeConverter`, injected into particles). `sync-ng.yml` merges every `main` push into it. If a merge conflicts, it opens an `ng-sync` issue: run `git switch ng && .github/scripts/sync-ng.sh`, fix what is left, push. Never rebase `ng`.
+- Make changes on `main`; touch `ng` only for NetherGames-specific code.
+
 ## Conventions
 
-- One class per file, `declare(strict_types=1)`, typed properties and return types.
-  Use `@phpstan-param` / `@phpstan-return` where native types can't express it.
 - Mob behavior goes through the goal FSM, not inline in entity tick methods. Port a mob by
   composing goals.
-- Port vanilla AI faithfully, adapting to PocketMine-MP's APIs.
-- A new mob needs its despawn rule in `DespawnRuleRegistry`; without one it never despawns.
+- Match vanilla Bedrock behavior, but don't copy another edition's design: shape the code around
+  PocketMine-MP's APIs and PHP's performance limits. Reuse PocketMine's APIs and maps before
+  writing new ones.
+- The plugin is pre-release: no backward-compatibility shims.
+- One class per file, `declare(strict_types=1)`, typed properties and return types. Also write
+  `@var`, `@param` and `@return` where they add information, so every IDE sees it, and
+  `@phpstan-*` for what only PHPStan can express. A few words each; don't restate the code.
+- No `empty()` and no `in_array()`. Check explicitly (`count($x) !== 0`, `=== null`,
+  `!== ""`, never `$x !== []`); for membership use a keyed constant map and `isset()`.
+- Whatever holds a quantity states its unit, in the name, a docblock or a trailing comment
+  (`//ticks`, `//blocks per tick`): constants, properties, parameters and return values. NBT key
+  constants state their tag type (`//TAG_Int`).
+- An enum whose cases hold data declares it with `@phpstan-type TData array{…}`, keeps it in a
+  private `getData()` (a `match`, cached per case by `spl_object_id($this)`) and exposes
+  getters (`TropicalFishPreset`). Wire ids go in a hand-written `*IdMap` in `data/bedrock/`
+  built on `IntSaveIdMapTrait`.
+- A trait never calls `parent::`. When it overrides a method its host inherits (`initEntity()`, `saveNBT()`,
+  `onInteract()`...), it keeps that name and the host aliases it, so a host that forgets to hook it breaks at once.
+- Setters of properties are fluent: they return `$this` (`@return $this`, or `: static`), so calls chain.
+- Registries are `SingletonTrait` classes. Broken invariants throw `AssumptionFailedError`;
+  don't catch `\Throwable` broadly.
+- Leave a `TODO` instead of speculative code, and delete what a change orphans.
 
 ## Before finishing
 
 Run php-cs-fixer, PHPStan and `composer test`, and make sure the phar builds.
-
-The test suite covers natural spawning only: the bundled data loads, the candidate cache
-agrees with plain evaluation, caps and density limits hold, the census counts correctly,
-the slime-chunk algorithm, and which blocks a mob can stand in. Everything else is checked
-by PHPStan and in-server testing.
